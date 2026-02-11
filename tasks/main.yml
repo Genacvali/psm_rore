@@ -42,7 +42,7 @@
 # ------------------------------------------------------------------
 - name: mongodb_pbm_install
   ansible.builtin.import_tasks: pbm_install.yml
-  when: mongo_desired_action == "pbm_install"
+  when: mongo_desired_action == "pbm_install" and not (mongo_pbm_skip | bool)
   tags: [mongodb_pbm_install]
 
 # ------------------------------------------------------------------

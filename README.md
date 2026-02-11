@@ -43,6 +43,7 @@ mongo_pkg_version: "6.0"       # Версия MongoDB (без patch-номера
 | `mongo_replset`          | Имя ReplicaSet                                       | Автоматически из `ansible_hostname` |
 | `mongo_admin_pwd`        | Пароль для пользователя `admin`                      | Генерируется                         |
 | `mongo_install_pbm`      | Установить PBM при действии `install`                | `true`                               |
+| `mongo_pbm_skip`         | Пропустить установку PBM при действии `pbm_install`  | `false`                              |
 | `pymongo_version`        | Версия PyMongo для модулей community.mongodb         | `4.13.2`                             |
 
 ---
