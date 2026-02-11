@@ -54,7 +54,7 @@
 - name: pbm_wait_rs_ready
   ansible.builtin.command:
     argv:
-      - mongo
+      - mongosh
       - --quiet
       - --host
       - "{{ rs_primary_host }}"
@@ -85,7 +85,7 @@
 - name: pbm_check_role_exists
   ansible.builtin.command:
     argv:
-      - mongo
+      - mongosh
       - admin
       - --quiet
       - --host
@@ -113,7 +113,7 @@
 - name: pbm_create_role
   ansible.builtin.command:
     argv:
-      - mongo
+      - mongosh
       - admin
       - --quiet
       - --host
@@ -148,7 +148,7 @@
 - name: pbm_check_user_exists
   ansible.builtin.command:
     argv:
-      - mongo
+      - mongosh
       - admin
       - --quiet
       - --host
@@ -162,7 +162,7 @@
       - --authenticationDatabase
       - admin
       - --eval
-      - 'db.system.users.count({user:"{{ pbm_user }}"})' 
+      - 'db.system.users.countDocuments({user:"{{ pbm_user }}"})' 
   register: pbm_user_count
   changed_when: false
   failed_when: false
@@ -264,7 +264,7 @@
   ansible.builtin.service:
     name: pbm-agent
     state: restarted
-  when: pbm_systemd_env.changed or pbm_config_result.changed
+  when: pbm_systemd_env.changed or (pbm_config_result is defined and pbm_config_result.changed)
 
 ###############################################################################
 # 14. Configure PBM with S3 storage (run on one host)
@@ -275,6 +275,7 @@
     pbm config --file /etc/.pbm/config_s3.yaml
   when: 
     - pbm_s3_bucket is defined
+    - pbm_config_result is defined
     - pbm_config_result.changed
   run_once: true
   delegate_to: "{{ rs_primary_host }}"
