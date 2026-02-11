@@ -220,14 +220,32 @@ mongo_desired_action: wipe
 
 Можно выполнять только части роли с помощью `--tags`:
 
-- `mongodb_prepare_os`
-- `mongodb_configure`
-- `mongodb_replicaset`
-- `mongodb_users`
-- `mongodb_keyfile`
-- `mongodb_wipe`
-- `mongodb_install`
-- `mongodb_pbm_install`
+### Основные действия:
+- `mongodb_install` - полная установка MongoDB + ReplicaSet + пользователи + PBM
+- `mongodb_update_conf` - только обновление конфигурации
+- `mongodb_wipe` - полное удаление MongoDB
+- `mongodb_pbm_install` - только установка PBM (отдельное действие)
+
+### Части установки (внутри `install`):
+- `mongodb_prepare_os` - подготовка ОС (THP, репозитории, пакеты)
+- `mongodb_configure` - настройка mongod.conf
+- `mongodb_replicaset` - инициализация ReplicaSet
+- `mongodb_users` - создание пользователя admin
+- `mongodb_keyfile` - настройка аутентификации
+- `mongodb_pbm` - установка Percona Backup for MongoDB
+
+### Примеры использования тегов:
+
+```bash
+# Установить только PBM (MongoDB уже должна быть установлена)
+ansible-playbook playbook.yml --tags mongodb_pbm
+
+# Выполнить полную установку
+ansible-playbook playbook.yml --tags mongodb_install
+
+# Только подготовка ОС и установка пакетов
+ansible-playbook playbook.yml --tags mongodb_prepare_os
+```
 
 ---
 
