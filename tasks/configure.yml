@@ -1,0 +1,40 @@
+# ==================================================================
+# tasks/configure.yml – render mongod.conf and (re)start the service
+# ==================================================================
+
+# ------------------------------------------------
+# 1. Render /etc/mongod.conf from template
+# ------------------------------------------------
+- name: mongodb_cfg_render
+  ansible.builtin.template:
+    src: mongod.conf.j2
+    dest: /etc/mongod.conf
+    mode: "0644"
+  register: cfg_result
+  when: not mongo_configure_skip | bool
+
+# ------------------------------------------------
+# 2. Ensure service is enabled & running
+# ------------------------------------------------
+- name: mongodb_service_start_enable
+  ansible.builtin.service:
+    name: mongod
+    state: started              # starts if down, leaves running service intact
+    enabled: true               # enable at boot
+  register: svc_result
+  failed_when: false            # do not fail even if unit is missing
+  when: not mongo_configure_skip | bool
+
+# ------------------------------------------------
+# 3. Warn if unit is missing (packages not installed yet)
+# ------------------------------------------------
+- name: mongodb_service_missing_warn
+  ansible.builtin.debug:
+    msg: >
+      WARNING: systemd unit 'mongod.service' not found.
+      MongoDB packages are probably not installed.
+  when:
+    - not mongo_configure_skip | bool
+    - svc_result is defined
+    - svc_result.failed | default(false)
+    - "'Could not find the requested service' in (svc_result.msg | default(''))"

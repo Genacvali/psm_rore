@@ -1,0 +1,59 @@
+# ==================================================================
+# tasks/keyfile.yml – enable key-file authentication
+# ==================================================================
+# Skip the whole block if mongo_keyfile_skip = true
+- meta: end_play
+  when: mongo_keyfile_skip | bool
+
+
+###############################################################################
+# 0. Generate keyFile content once on the control node
+###############################################################################
+- name: mongodb_keyfile_generate_once
+  ansible.builtin.set_fact:
+    mongo_keyfile_content: >-
+      {{ lookup('password', '/dev/null',
+                length=756, chars='ascii_letters,digits') }}
+  when: mongo_keyfile_content | length == 0
+  run_once: true
+  delegate_to: localhost
+
+
+###############################################################################
+# 1. Ensure keyFile directory exists
+###############################################################################
+- name: mongodb_keyfile_dir
+  ansible.builtin.file:
+    path: "{{ mongo_keyfile_dir }}"
+    state: directory
+    owner: mongod
+    group: mongod
+    mode: "0700"
+
+
+###############################################################################
+# 2. Upload keyFile (idempotent)
+###############################################################################
+- name: mongodb_keyfile_upload
+  ansible.builtin.copy:
+    dest: "{{ mongo_keyfile_path }}"
+    owner: mongod
+    group: mongod
+    mode: "0400"
+    content: "{{ mongo_keyfile_content }}"
+  no_log: true                    # hide raw key from logs
+
+
+###############################################################################
+# 3. Insert security block into mongod.conf
+###############################################################################
+- name: mongodb_keyfile_update_conf
+  ansible.builtin.blockinfile:
+    path: "/etc/mongod.conf"
+    create: true
+    marker: "# {mark} managed by Ansible – security"
+    block: |
+      security:
+        keyFile: {{ mongo_keyfile_path }}
+        authorization: "enabled"
+  register: key_result

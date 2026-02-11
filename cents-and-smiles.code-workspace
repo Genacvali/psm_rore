@@ -1,0 +1,10 @@
+{
+	"folders": [
+		{
+			"name": "cents-and-smiles",
+			"uri": "vscode-remote://wsl+ubuntu/home/gena1/cents-and-smiles"
+		}
+	],
+	"remoteAuthority": "wsl+ubuntu",
+	"settings": {}
+}

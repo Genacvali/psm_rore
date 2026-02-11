@@ -1,0 +1,14 @@
+# ==================================================================
+# tasks/derive_replname.yml – calculate ReplicaSet name once per play
+# ==================================================================
+
+# ------------------------------------------------------------------
+# Build the ReplicaSet name from the first token of ansible_hostname.
+# Example:  d-dba-mng-adv-msk01 → dCluster
+# ------------------------------------------------------------------
+- name: mongodb_derive_replset_name
+  ansible.builtin.set_fact:
+    mongo_replset: "{{ (ansible_hostname | split('-'))[0] | lower }}Cluster"
+  run_once: true
+  delegate_to: localhost
+  tags: [mongodb_configure, mongodb_replicaset]

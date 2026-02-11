@@ -1,0 +1,144 @@
+# ==================================================================
+# tasks/prepare_os.yml – THP, repo, packages, dirs, PyMongo
+# ==================================================================
+# Skip everything if mongo_prepare_os_skip = true
+- meta: end_play
+  when: mongo_prepare_os_skip | bool
+
+###############################################################################
+# 0. Disable Transparent Huge Pages (THP) once and forever
+###############################################################################
+- name: mongodb_thp_read_state
+  ansible.builtin.command: cat /sys/kernel/mm/transparent_hugepage/enabled
+  register: thp_state
+  changed_when: false
+
+- name: mongodb_thp_disable_runtime
+  ansible.builtin.shell: |
+    echo never > /sys/kernel/mm/transparent_hugepage/enabled
+    echo never > /sys/kernel/mm/transparent_hugepage/defrag
+  when: "'[never]' not in thp_state.stdout"
+
+- name: mongodb_thp_unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/disable-thp.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Disable Transparent Huge Pages
+      DefaultDependencies=no
+      After=sysinit.target local-fs.target
+      ConditionPathExists=/sys/kernel/mm/transparent_hugepage/enabled
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/bash -c 'echo never > /sys/kernel/mm/transparent_hugepage/enabled'
+      ExecStart=/usr/bin/bash -c 'echo never > /sys/kernel/mm/transparent_hugepage/defrag'
+
+      [Install]
+      WantedBy=multi-user.target
+  register: thp_unit
+
+- name: mongodb_thp_daemon_reload
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: thp_unit.changed
+
+- name: mongodb_thp_service
+  ansible.builtin.service:
+    name: disable-thp
+    state: started
+    enabled: true
+  ignore_errors: true          # service absent on very old kernels
+  when: thp_unit.changed
+
+###############################################################################
+# 1. Percona repository (clean → add branch 7/6)
+###############################################################################
+- name: mongodb_repo_configure
+  ansible.builtin.yum_repository:
+    name: "{{ percona_repo_name }}"
+    description: "Percona Server for MongoDB {{ mongo_branch }}"
+    baseurl: "{{ percona_baseurl }}"
+    enabled: true
+    gpgcheck: "{{ percona_repo_gpgcheck }}"
+  when: not mongo_prepare_os_skip | bool
+
+
+###############################################################################
+# DEBUG — входные переменные репозитория
+###############################################################################
+- name: dbg_repo_vars_input
+  ansible.builtin.debug:
+    msg: |
+      mongo_pkg_version   = {{ mongo_pkg_version }}
+      mongo_branch        = {{ mongo_branch }}
+      percona_branch      = {{ percona_branch | default('UNSET') }}
+      percona_repo_name   = mongo-{{ mongo_branch | regex_replace('\\.', '') }}-percona
+      percona_baseurl_tpl = https://nexus.sberdevices.ru/repository/yum_percona_mongodb_proxy/psmdb-{{ mongo_branch | regex_replace('\\.', '') }}/yum/release/$releasever/RPMS/$basearch
+
+###############################################################################
+# 1. Вычислить percona_branch (60, 70, 80 …) если он ещё не задан
+###############################################################################
+- name: set_percona_branch_fact
+  ansible.builtin.set_fact:
+    percona_branch: "{{ (mongo_pkg_version | string).split('.')[0] }}0"
+  when: percona_branch is not defined
+  delegate_to: localhost
+  run_once: true
+
+###############################################################################
+# 2. Install exact Percona build (allow downgrade)
+###############################################################################
+- name: mongodb_install_packages
+  ansible.builtin.dnf:
+    name: "{{ percona_package_glob }}"
+    state: present
+    exclude: "*-debug*"
+    allow_downgrade: true
+  register: percona_install
+  when: not mongo_prepare_os_skip | bool
+
+
+###############################################################################
+# 3. Python tooling for community.mongodb modules
+###############################################################################
+- name: mongodb_python_pip
+  ansible.builtin.dnf:
+    name: python3-pip
+    state: present
+
+- name: mongodb_python_pymongo
+  ansible.builtin.pip:
+    name: "pymongo=={{ pymongo_version }}"
+    executable: pip3
+  environment:
+    PIP_INDEX_URL: "{{ pip_index_url }}"
+    PIP_TRUSTED_HOST: "{{ pip_trusted_host }}"
+
+###############################################################################
+# 4. Data, log & keyFile directories
+###############################################################################
+- name: mongodb_dirs
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: mongod
+    group: mongod
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ mongo_db_path }}",       mode: "0750" }
+    - { path: "{{ mongo_log_path }}",      mode: "0755" }
+    - { path: "{{ mongo_keyfile_dir }}",   mode: "0700" }
+
+###############################################################################
+# 5. Version summary (read only)
+###############################################################################
+- name: mongodb_version_summary
+  ansible.builtin.command: rpm -q percona-server-mongodb-server
+  register: rpm_version
+  changed_when: false
+
+- name: mongodb_version_debug
+  ansible.builtin.debug:
+    msg: "Percona Server for MongoDB installed: {{ rpm_version.stdout }}"

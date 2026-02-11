@@ -1,0 +1,123 @@
+# ==================================================================
+# tasks/users.yml – create root admin user on PRIMARY only
+# ==================================================================
+
+# ------------------------------------------------------------------
+# Skip everything if requested
+# ------------------------------------------------------------------
+- meta: end_play
+  when: mongo_users_skip | bool
+
+###############################################################################
+# 0. Choose PRIMARY host (explicit role -or- first host in batch)
+###############################################################################
+- name: mongodb_users_choose_primary
+  ansible.builtin.set_fact:
+    rs_primary_host: >-
+      {{
+        (mongo_rs_members
+         | selectattr('role', 'defined')
+         | selectattr('role', 'equalto', 'primary')
+         | map(attribute='host') | first)
+          if (mongo_rs_members is defined
+              and mongo_rs_members | length > 0
+              and mongo_rs_members[0] is mapping)
+          else ansible_play_batch | first
+      }}
+  run_once: true
+  delegate_to: localhost
+
+###############################################################################
+# 1. Wait until PRIMARY (or SECONDARY) answers hello()
+###############################################################################
+- name: mongodb_users_wait_rs_ready
+  ansible.builtin.command:
+    argv:
+      - mongo
+      - --quiet
+      - --host
+      - "{{ rs_primary_host }}"
+      - --port
+      - "{{ mongo_port }}"
+      - --eval
+      - 'var h=db.hello(); print(h.isWritablePrimary || h.secondary);'
+  register: hello_status
+  retries: 5         
+  delay: 3
+  until: hello_status.stdout.strip() == "true"
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+
+
+###############################################################################
+# 2. Generate password once (if not provided)
+###############################################################################
+- name: mongodb_users_generate_pwd
+  ansible.builtin.set_fact:
+    mongo_admin_pwd: "{{ lookup('password', '/dev/null', length=20) }}"
+  when: mongo_admin_pwd is not defined
+  run_once: true
+  delegate_to: localhost
+
+
+###############################################################################
+# 3. Check whether admin already exists
+###############################################################################
+- name: mongodb_users_check_exists
+  ansible.builtin.command:
+    argv:
+      - mongo
+      - admin
+      - --quiet
+      - --host
+      - "{{ rs_primary_host }}"
+      - --port
+      - "{{ mongo_port }}"
+      - --eval
+      - 'db.system.users.count({user:"admin"})'
+  register: admin_count
+  changed_when: false
+  failed_when: false
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+
+
+###############################################################################
+# 4. Create admin (root) user
+###############################################################################
+- name: mongodb_users_create_admin
+  community.mongodb.mongodb_user:
+    login_host: "{{ rs_primary_host }}"
+    login_port: "{{ mongo_port }}"
+    database: admin
+    name: admin
+    password: "{{ mongo_admin_pwd }}"
+    roles:
+      - role: root
+        db: admin
+    connection_options:
+      - directConnection=true
+    state: present
+  when: admin_count.stdout | int == 0
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+  no_log: true
+
+
+###############################################################################
+# 5. Persist credentials on PRIMARY host
+###############################################################################
+- name: mongodb_users_persist_pwd
+  ansible.builtin.copy:
+    dest: /root/mongo_admin_credentials.txt
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      user : admin
+      pass : {{ mongo_admin_pwd }}
+      date : {{ ansible_date_time.iso8601 }}
+  when: admin_count.stdout | int == 0
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+  no_log: true

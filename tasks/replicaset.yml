@@ -1,0 +1,122 @@
+# ==================================================================
+# tasks/replicaset.yml – idempotent ReplicaSet bootstrap / reconcile
+# ==================================================================
+
+- meta: end_play
+  when: mongo_replicaset_skip | bool
+
+###############################################################################
+# 1. Build the member list [ fqdn_or_ip:port ]
+###############################################################################
+- name: Collect ReplicaSet members
+  ansible.builtin.set_fact:
+    rs_members: >-
+      {{
+        (
+          (mongo_rs_members               | default(ansible_play_batch))
+          | map(attribute='host')         if (
+              mongo_rs_members is defined and
+              mongo_rs_members | length > 0 and
+              (mongo_rs_members[0] is mapping)
+            ) else
+          (mongo_rs_members               | default(ansible_play_batch))
+        )
+        | map('regex_replace', '(.*[^:])$', '\1:' ~ mongo_port)
+        | list
+      }}
+  run_once: true
+  delegate_to: localhost
+
+
+###############################################################################
+# 2. Choose PRIMARY host and define nodes-to-add
+###############################################################################
+- name: Pick PRIMARY and todo-list
+  ansible.builtin.set_fact:
+    rs_primary_host: "{{ (rs_members[0].split(':')[0]) }}"
+    mongo_rs_members_to_add: "{{ rs_members[1:] }}"
+  run_once: true
+  delegate_to: localhost
+
+
+###############################################################################
+# 3. Initiate the ReplicaSet (only if not yet initiated)
+###############################################################################
+- name: Initiate ReplicaSet (first node)
+  ansible.builtin.command:
+    argv:
+      - mongo
+      - --quiet
+      - --host
+      - "{{ rs_primary_host }}"
+      - --port
+      - "{{ mongo_port }}"
+      - --eval
+      - |
+          try {
+            if (rs.status().ok === 0) {
+              print("### rs.initiate()");
+              rs.initiate({
+                _id: "{{ mongo_replset }}",
+                members: [{ _id: 0, host: "{{ rs_members[0] }}" }]
+              });
+            }
+          } catch (e) { print(e); quit(1); }
+  register: rs_initiate
+  retries: 10
+  delay: 5
+  until: rs_initiate.rc == 0
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+
+
+###############################################################################
+# 4. Add remaining nodes (if any)
+###############################################################################
+- name: Add missing members
+  ansible.builtin.command:
+    argv:
+      - mongo
+      - --quiet
+      - --host
+      - "{{ rs_primary_host }}"
+      - --port
+      - "{{ mongo_port }}"
+      - --eval
+      - |
+          try {
+            var current = rs.status().members.map(m => m.name);
+            var desired = {{ mongo_rs_members_to_add | to_json }};
+            desired.forEach(function (h) {
+              if (!current.includes(h)) {
+                print("### rs.add(" + h + ")");
+                try { rs.add({ host: h }); } catch (e) { print(e); }
+              }
+            });
+          } catch (e) { print(e); quit(1); }
+  register: rs_add
+  retries: 10
+  delay: 5
+  until: rs_add.rc == 0
+  when: mongo_rs_members_to_add | length > 0
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+
+
+###############################################################################
+# 5. Short summary
+###############################################################################
+- name: ReplicaSet summary
+  ansible.builtin.command:
+    argv:
+      - mongo
+      - --quiet
+      - --host
+      - "{{ rs_primary_host }}"
+      - --port
+      - "{{ mongo_port }}"
+      - --eval
+      - 'printjson(rs.status().members)'
+  changed_when: false
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"

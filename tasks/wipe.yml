@@ -1,0 +1,51 @@
+# ==================================================================
+# tasks/wipe.yml – completely remove MongoDB / Percona from the host
+# ==================================================================
+
+# ------------------------------------------------------------------
+# Skip everything if mongo_wipe_skip = true
+# ------------------------------------------------------------------
+- meta: end_play
+  when: mongo_wipe_skip | bool
+
+###############################################################################
+# 1. Stop service (ignore if unit is absent)
+###############################################################################
+- name: mongodb_wipe_stop_service
+  ansible.builtin.service:
+    name: mongod
+    state: stopped
+  ignore_errors: true          # unit may not exist
+
+###############################################################################
+# 2. Remove RPM packages
+###############################################################################
+- name: mongodb_wipe_remove_packages
+  ansible.builtin.dnf:
+    name:
+      - percona-server-mongodb*
+      - mongodb-org*
+    state: absent
+
+
+###############################################################################
+# 3. Delete data / log / key / config / THP unit
+###############################################################################
+- name: mongodb_wipe_remove_paths
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ mongo_db_path }}"
+    - "{{ mongo_log_path }}"
+    - "{{ mongo_keyfile_path }}"
+    - "/etc/mongod.conf"
+    - "/etc/systemd/system/disable-thp.service"
+
+###############################################################################
+# 4. Purge Percona repo files (optional safety)
+###############################################################################
+- name: mongodb_wipe_remove_repo
+  ansible.builtin.file:
+    path: "/etc/yum.repos.d/{{ percona_repo_name }}.repo"
+    state: absent

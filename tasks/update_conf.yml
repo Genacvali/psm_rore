@@ -1,0 +1,35 @@
+# ==================================================================
+# tasks/update_conf.yml – render mongod.conf and restart if changed
+# ==================================================================
+# Skip entire task-file when mongo_update_conf_skip = true
+- meta: end_play
+  when: mongo_update_conf_skip | bool
+
+###############################################################################
+# 1. Render configuration
+###############################################################################
+- name: mongodb_update_conf_render
+  ansible.builtin.template:
+    src: mongod.conf.j2
+    dest: /etc/mongod.conf
+    mode: "0644"
+  register: cfg_result
+
+###############################################################################
+# 2. Restart mongod only if template changed
+###############################################################################
+- name: mongodb_update_conf_restart
+  ansible.builtin.service:
+    name: mongod
+    state: restarted
+  when: cfg_result['changed']
+
+- name: mongodb_update_conf_wait_port
+  ansible.builtin.wait_for:
+    host: "{{ ansible_default_ipv4['address'] }}"
+    port: "{{ mongo_port }}"
+    delay: 2
+    timeout: 60
+  when: cfg_result['changed']
+  run_once: true
+  delegate_to: "{{ inventory_hostname }}"

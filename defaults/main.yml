@@ -1,0 +1,60 @@
+# ==================================================================
+# defaults/main.yml – sane, self-documenting defaults
+# ==================================================================
+
+# ------------------------------------------------
+# 0. Role switch            (do nothing by default)
+# ------------------------------------------------
+# valid values:  install | update_conf | wipe | none
+mongo_desired_action: "none"
+
+# ------------------------------------------------
+# 1. Versioning & repository
+# ------------------------------------------------
+# Exact EVR or major.minor (e.g. 7.0.12-5.el9  or 7.0)
+mongo_pkg_version: "6.0.21"
+
+# Derived branch X.Y from version (e.g. 6.0.21 → 6.0)
+mongo_branch: "{{ mongo_pkg_version | regex_search('^\\d+\\.\\d+') }}"
+
+# Internal Nexus mirror for Percona repository
+percona_repo_name: "mongo-{{ mongo_branch | replace('.', '') }}-percona"
+percona_baseurl: "https://nexus.sberdevices.ru/repository/yum_percona_mongodb_proxy/psmdb-{{ mongo_branch | replace('.', '') }}/yum/release/$releasever/RPMS/$basearch"
+percona_repo_gpgcheck: 0            # mirror is unsigned
+percona_package_glob: "percona-server-mongodb*{{ mongo_branch }}*"
+
+
+# ------------------------------------------------
+# 2. PyPI mirror for pymongo
+# ------------------------------------------------
+pip_index_url:  "https://nexus.sberdevices.ru/repository/pypi/simple"
+pip_trusted_host: "nexus.sberdevices.ru"
+pymongo_version: "4.1.1"
+
+# ------------------------------------------------
+# 3. Paths, ports, ReplicaSet
+# ------------------------------------------------
+mongo_port: 27017
+
+mongo_db_path:  "/data/data"
+mongo_log_path: "/data/logs"
+
+# keyFile            /data/ssl/mongo.key (dir + name → full path)
+mongo_keyfile_dir:  "/data/ssl"
+mongo_keyfile_name: "mongo.key"
+mongo_keyfile_path: "{{ mongo_keyfile_dir }}/{{ mongo_keyfile_name }}"
+
+mongo_replset: "rsName"
+
+# keyFile contents will be generated once per cluster if empty
+mongo_keyfile_content: ""
+
+# ------------------------------------------------
+# 4. Skip toggles      (all false by default)
+# ------------------------------------------------
+mongo_prepare_os_skip: false
+mongo_configure_skip:  false
+mongo_keyfile_skip:    false
+mongo_users_skip:      false
+mongo_replicaset_skip: false
+mongo_wipe_skip:       false

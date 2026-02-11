@@ -1,0 +1,81 @@
+# ==================================================================
+# tasks/install.yml – full “install” workflow
+# ==================================================================
+
+###############################################################################
+# 0. Derive Replica-Set name (once per play)
+###############################################################################
+- name: mongodb_derive_replname
+  ansible.builtin.import_tasks: derive_replname.yml
+  tags: [mongodb_configure]
+
+###############################################################################
+# 1. OS preparation: repos, packages, THP, dirs, PyMongo
+###############################################################################
+- name: mongodb_prepare_os
+  ansible.builtin.import_tasks: prepare_os.yml
+  tags: [mongodb_prepare_os]
+
+###############################################################################
+# 2. Render mongod.conf → restart if config changed
+###############################################################################
+- name: mongodb_configure
+  ansible.builtin.import_tasks: configure.yml      # sets cfg_result
+  tags: [mongodb_configure]
+
+- name: mongodb_restart_after_config
+  ansible.builtin.service:
+    name: mongod
+    state: restarted
+  when: cfg_result is defined and cfg_result.changed
+  tags: [mongodb_configure]
+
+- name: mongodb_wait_after_config_restart
+  ansible.builtin.wait_for:
+    host: "{{ ansible_default_ipv4.address }}"
+    port: "{{ mongo_port }}"
+    delay: 2
+    timeout: 60
+  when: cfg_result is defined and cfg_result.changed
+  run_once: true
+  delegate_to: "{{ inventory_hostname }}"
+  tags: [mongodb_configure]
+
+###############################################################################
+# 3. Configure ReplicaSet (idempotent)
+###############################################################################
+- name: mongodb_replicaset
+  ansible.builtin.import_tasks: replicaset.yml
+  tags: [mongodb_replicaset]
+
+###############################################################################
+# 4. Create admin user (PRIMARY only)
+###############################################################################
+- name: mongodb_users
+  ansible.builtin.import_tasks: users.yml
+  tags: [mongodb_users]
+
+###############################################################################
+# 5. Upload keyFile, enable auth → restart if config changed
+###############################################################################
+- name: mongodb_keyfile
+  ansible.builtin.import_tasks: keyfile.yml        # sets key_result
+  tags: [mongodb_keyfile]
+
+- name: mongodb_restart_after_keyfile
+  ansible.builtin.service:
+    name: mongod
+    state: restarted
+  when: key_result is defined and key_result.changed
+  tags: [mongodb_keyfile]
+
+- name: mongodb_wait_after_keyfile_restart
+  ansible.builtin.wait_for:
+    host: "{{ ansible_default_ipv4.address }}"
+    port: "{{ mongo_port }}"
+    delay: 2
+    timeout: 60
+  when: key_result is defined and key_result.changed
+  run_once: true
+  delegate_to: "{{ inventory_hostname }}"
+  tags: [mongodb_keyfile]

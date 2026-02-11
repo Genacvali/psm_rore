@@ -1,0 +1,48 @@
+# ==================================================================
+# main.yml – entry-point that chooses workflow by mongo_desired_action
+# ==================================================================
+
+# ------------------------------------------------------------------
+# 0. Validate requested action
+# ------------------------------------------------------------------
+- name: mongodb_action_validate
+  ansible.builtin.assert:
+    that:
+      - mongo_desired_action in ['install', 'update_conf', 'wipe', 'none']
+    fail_msg: >
+      "mongo_desired_action must be one of: install | update_conf | wipe | none
+       (got {{ mongo_desired_action }})"
+
+# ------------------------------------------------------------------
+# 1. Full install workflow
+# ------------------------------------------------------------------
+- name: mongodb_install
+  ansible.builtin.import_tasks: install.yml
+  when: mongo_desired_action == "install"
+  tags: [mongodb_install]
+
+# ------------------------------------------------------------------
+# 2. Only render mongod.conf (no packages / RS / users)
+# ------------------------------------------------------------------
+- name: mongodb_update_conf
+  ansible.builtin.import_tasks: update_conf.yml
+  when: mongo_desired_action == "update_conf"
+  tags: [mongodb_update_conf]
+
+# ------------------------------------------------------------------
+# 3. Wipe MongoDB completely
+# ------------------------------------------------------------------
+- name: mongodb_wipe
+  ansible.builtin.import_tasks: wipe.yml
+  when: mongo_desired_action == "wipe"
+  tags: [mongodb_wipe]
+
+# ------------------------------------------------------------------
+# 4. No-op (mongo_desired_action = none) ─ play exits silently
+# ------------------------------------------------------------------
+- name: mongodb_noop
+  ansible.builtin.debug:
+    msg: "mongo_desired_action=none → role skipped."
+  when: mongo_desired_action == "none"
+  changed_when: false
+  tags: [skip_by_design]
