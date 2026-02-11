@@ -8,6 +8,7 @@
 - Настройку `mongod.conf`
 - Инициализацию и расширение ReplicaSet
 - Создание администратора (root) MongoDB
+- **Установку и настройку Percona Backup for MongoDB (PBM)** для резервного копирования
 - Удаление MongoDB при необходимости
 
 ---
@@ -41,23 +42,26 @@ mongo_pkg_version: "6.0"       # Версия MongoDB (без patch-номера
 | `mongo_keyfile_name`     | Имя файла keyFile                                    | `mongo.key`                          |
 | `mongo_replset`          | Имя ReplicaSet                                       | Автоматически из `ansible_hostname` |
 | `mongo_admin_pwd`        | Пароль для пользователя `admin`                      | Генерируется                         |
+| `mongo_install_pbm`      | Установить PBM при действии `install`                | `true`                               |
 | `pymongo_version`        | Версия PyMongo для модулей community.mongodb         | `4.13.2`                             |
 
 ---
 
 ## 🔧 Доступные действия (`mongo_desired_action`)
 
-- `install` – Полная установка MongoDB + ReplicaSet + пользователь
+- `install` – Полная установка MongoDB + ReplicaSet + пользователь + PBM (можно отключить PBM через `mongo_install_pbm: false`)
 - `update_conf` – Только перерендерить `mongod.conf` и перезапустить
 - `wipe` – Полное удаление MongoDB и связанных данных
-- `pbm_install` – Установка и настройка Percona Backup for MongoDB
+- `pbm_install` – Только установка и настройка Percona Backup for MongoDB (для добавления на существующий кластер)
 
 ---
 
 ## 🔒 Примеры использования
 
+### Установка MongoDB + PBM (по умолчанию)
+
 ```yaml
-- name: Установка MongoDB через роль
+- name: Установка MongoDB с PBM
   hosts: mongodb
   become: true
   roles:
@@ -72,13 +76,48 @@ mongo_pkg_version: "6.0"       # Версия MongoDB (без patch-номера
             role: secondary
           - host: hostname3
             role: arbiter
+        # Настройки S3 для PBM (обязательны для бэкапов)
+        pbm_s3_bucket: "my-backup-bucket"
+        pbm_s3_region: "us-east-1"
+        pbm_s3_access_key: "your_access_key"
+        pbm_s3_secret_key: "your_secret_key"
+        pbm_s3_endpoint: "https://obs.ru-moscow-1.hc.sbercloud.ru"
+```
+
+### Установка только MongoDB (без PBM)
+
+Если вам не нужен PBM, отключите его:
+
+```yaml
+- name: Установка только MongoDB
+  hosts: mongodb
+  become: true
+  roles:
+    - role: psmongodb
+      vars:
+        mongo_desired_action: install
+        mongo_install_pbm: false    # Отключить установку PBM
+        mongo_pkg_version: "6.0"
+        mongo_rs_members:
+          - host: hostname1
+            role: primary
+          - host: hostname2
+            role: secondary
+          - host: hostname3
+            role: arbiter
 ```
 
 ---
 
 ## 💾 Установка Percona Backup for MongoDB (PBM)
 
-Для установки системы резервного копирования используйте действие `pbm_install`:
+### Автоматическая установка с MongoDB
+
+По умолчанию PBM устанавливается автоматически при `mongo_desired_action: install`. Просто укажите настройки S3 в переменных.
+
+### Отдельная установка PBM на существующий кластер
+
+Если MongoDB уже установлена, и вы хотите добавить только PBM, используйте действие `pbm_install`:
 
 ```yaml
 - name: Установка PBM

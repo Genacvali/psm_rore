@@ -79,3 +79,11 @@
   run_once: true
   delegate_to: "{{ inventory_hostname }}"
   tags: [mongodb_keyfile]
+
+###############################################################################
+# 6. Install Percona Backup for MongoDB (optional)
+###############################################################################
+- name: mongodb_pbm_install
+  ansible.builtin.import_tasks: pbm_install.yml
+  when: mongo_install_pbm | bool
+  tags: [mongodb_pbm_install]

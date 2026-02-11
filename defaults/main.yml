@@ -60,6 +60,9 @@ mongo_replicaset_skip: false
 mongo_wipe_skip:       false
 mongo_pbm_skip:        false
 
+# Install PBM during 'install' action (default: true)
+mongo_install_pbm:     true
+
 # ------------------------------------------------
 # 5. Percona Backup for MongoDB (PBM) settings
 # ------------------------------------------------
