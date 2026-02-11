@@ -8,9 +8,9 @@
 - name: mongodb_action_validate
   ansible.builtin.assert:
     that:
-      - mongo_desired_action in ['install', 'update_conf', 'wipe', 'none']
+      - mongo_desired_action in ['install', 'update_conf', 'wipe', 'pbm_install', 'none']
     fail_msg: >
-      "mongo_desired_action must be one of: install | update_conf | wipe | none
+      "mongo_desired_action must be one of: install | update_conf | wipe | pbm_install | none
        (got {{ mongo_desired_action }})"
 
 # ------------------------------------------------------------------
@@ -38,7 +38,15 @@
   tags: [mongodb_wipe]
 
 # ------------------------------------------------------------------
-# 4. No-op (mongo_desired_action = none) ─ play exits silently
+# 4. Install Percona Backup for MongoDB
+# ------------------------------------------------------------------
+- name: mongodb_pbm_install
+  ansible.builtin.import_tasks: pbm_install.yml
+  when: mongo_desired_action == "pbm_install"
+  tags: [mongodb_pbm_install]
+
+# ------------------------------------------------------------------
+# 5. No-op (mongo_desired_action = none) ─ play exits silently
 # ------------------------------------------------------------------
 - name: mongodb_noop
   ansible.builtin.debug:

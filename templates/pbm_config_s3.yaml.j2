@@ -1,0 +1,19 @@
+storage:
+  type: s3
+  s3:
+    region: "{{ pbm_s3_region | default('us-east-1') }}"
+    bucket: "{{ pbm_s3_bucket }}"
+    prefix: "{{ pbm_s3_prefix | default('') }}"
+    {% if pbm_s3_endpoint is defined %}
+    endpointUrl: "{{ pbm_s3_endpoint }}"
+    {% endif %}
+    credentials:
+      access-key-id: "{{ pbm_s3_access_key }}"
+      secret-access-key: "{{ pbm_s3_secret_key }}"
+    {% if pbm_s3_insecure_skip_tls is defined %}
+    insecureSkipTLSVerify: {{ pbm_s3_insecure_skip_tls }}
+    {% endif %}
+
+backup:
+  compression: s2
+  compressionLevel: {{ pbm_compression_level | default(3) }}

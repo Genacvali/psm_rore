@@ -5,7 +5,7 @@
 # ------------------------------------------------
 # 0. Role switch            (do nothing by default)
 # ------------------------------------------------
-# valid values:  install | update_conf | wipe | none
+# valid values:  install | update_conf | wipe | pbm_install | none
 mongo_desired_action: "none"
 
 # ------------------------------------------------
@@ -58,3 +58,32 @@ mongo_keyfile_skip:    false
 mongo_users_skip:      false
 mongo_replicaset_skip: false
 mongo_wipe_skip:       false
+mongo_pbm_skip:        false
+
+# ------------------------------------------------
+# 5. Percona Backup for MongoDB (PBM) settings
+# ------------------------------------------------
+# PBM package version
+pbm_version: "2.8"
+
+# PBM repository URL
+pbm_repo_baseurl: "https://nexus.sberdevices.ru/repository/mirror-percona/release/8Server/RPMS/$basearch/"
+
+# PBM MongoDB user
+pbm_user: "pbmuser"
+# pbm_user_password: ""  # auto-generated if not provided
+
+# PBM S3 storage configuration (optional)
+# pbm_s3_bucket: "my-backup-bucket"
+# pbm_s3_region: "us-east-1"
+# pbm_s3_prefix: "mongodb-backups"
+# pbm_s3_endpoint: "https://s3.example.com"
+# pbm_s3_access_key: ""
+# pbm_s3_secret_key: ""
+# pbm_s3_insecure_skip_tls: false
+
+# PBM backup directory (optional local storage)
+pbm_backup_dir: "/data/backup"
+
+# PBM compression settings
+pbm_compression_level: 3

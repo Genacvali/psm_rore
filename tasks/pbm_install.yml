@@ -1,0 +1,297 @@
+# ==================================================================
+# tasks/pbm_install.yml – Percona Backup for MongoDB installation
+# ==================================================================
+
+# ------------------------------------------------------------------
+# Skip everything if requested
+# ------------------------------------------------------------------
+- meta: end_play
+  when: mongo_pbm_skip | bool
+
+###############################################################################
+# 0. Add Percona PBM repository
+###############################################################################
+- name: pbm_add_repository
+  ansible.builtin.yum_repository:
+    name: percona-pbm
+    description: "Nexus proxy repo for Percona PBM"
+    baseurl: "{{ pbm_repo_baseurl }}"
+    enabled: true
+    gpgcheck: 0
+
+###############################################################################
+# 1. Install Percona Backup for MongoDB packages
+###############################################################################
+- name: pbm_install_packages
+  ansible.builtin.dnf:
+    name: "percona-backup-mongodb*{{ pbm_version }}*"
+    state: present
+    allow_downgrade: true
+
+###############################################################################
+# 2. Choose PRIMARY host for user creation
+###############################################################################
+- name: pbm_choose_primary
+  ansible.builtin.set_fact:
+    rs_primary_host: >-
+      {{
+        (mongo_rs_members
+         | selectattr('role', 'defined')
+         | selectattr('role', 'equalto', 'primary')
+         | map(attribute='host') | first)
+          if (mongo_rs_members is defined
+              and mongo_rs_members | length > 0
+              and mongo_rs_members[0] is mapping)
+          else ansible_play_batch | first
+      }}
+  run_once: true
+  delegate_to: localhost
+
+###############################################################################
+# 3. Wait until PRIMARY is ready
+###############################################################################
+- name: pbm_wait_rs_ready
+  ansible.builtin.command:
+    argv:
+      - mongo
+      - --quiet
+      - --host
+      - "{{ rs_primary_host }}"
+      - --port
+      - "{{ mongo_port }}"
+      - --eval
+      - 'var h=db.hello(); print(h.isWritablePrimary || h.secondary);'
+  register: hello_status
+  retries: 5
+  delay: 3
+  until: hello_status.stdout.strip() == "true"
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+
+###############################################################################
+# 4. Generate PBM user password (if not provided)
+###############################################################################
+- name: pbm_generate_password
+  ansible.builtin.set_fact:
+    pbm_user_password: "{{ lookup('password', '/dev/null', length=20) }}"
+  when: pbm_user_password is not defined
+  run_once: true
+  delegate_to: localhost
+
+###############################################################################
+# 5. Check if pbmAnyAction role exists
+###############################################################################
+- name: pbm_check_role_exists
+  ansible.builtin.command:
+    argv:
+      - mongo
+      - admin
+      - --quiet
+      - --host
+      - "{{ rs_primary_host }}"
+      - --port
+      - "{{ mongo_port }}"
+      - -u
+      - "{{ mongo_admin_user | default('admin') }}"
+      - -p
+      - "{{ mongo_admin_pwd }}"
+      - --authenticationDatabase
+      - admin
+      - --eval
+      - 'db.getRoles({rolesInfo:"pbmAnyAction"}).length'
+  register: pbm_role_count
+  changed_when: false
+  failed_when: false
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+  no_log: true
+
+###############################################################################
+# 6. Create pbmAnyAction role in MongoDB
+###############################################################################
+- name: pbm_create_role
+  ansible.builtin.command:
+    argv:
+      - mongo
+      - admin
+      - --quiet
+      - --host
+      - "{{ rs_primary_host }}"
+      - --port
+      - "{{ mongo_port }}"
+      - -u
+      - "{{ mongo_admin_user | default('admin') }}"
+      - -p
+      - "{{ mongo_admin_pwd }}"
+      - --authenticationDatabase
+      - admin
+      - --eval
+      - |
+        db.getSiblingDB("admin").createRole({
+          "role": "pbmAnyAction",
+          "privileges": [
+            { "resource": { "anyResource": true },
+              "actions": [ "anyAction" ]
+            }
+          ],
+          "roles": []
+        });
+  when: pbm_role_count.stdout | int == 0
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+  no_log: true
+
+###############################################################################
+# 7. Check if PBM user exists
+###############################################################################
+- name: pbm_check_user_exists
+  ansible.builtin.command:
+    argv:
+      - mongo
+      - admin
+      - --quiet
+      - --host
+      - "{{ rs_primary_host }}"
+      - --port
+      - "{{ mongo_port }}"
+      - -u
+      - "{{ mongo_admin_user | default('admin') }}"
+      - -p
+      - "{{ mongo_admin_pwd }}"
+      - --authenticationDatabase
+      - admin
+      - --eval
+      - 'db.system.users.count({user:"{{ pbm_user }}"})' 
+  register: pbm_user_count
+  changed_when: false
+  failed_when: false
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+  no_log: true
+
+###############################################################################
+# 8. Create PBM user in MongoDB
+###############################################################################
+- name: pbm_create_user
+  community.mongodb.mongodb_user:
+    login_host: "{{ rs_primary_host }}"
+    login_port: "{{ mongo_port }}"
+    login_user: "{{ mongo_admin_user | default('admin') }}"
+    login_password: "{{ mongo_admin_pwd }}"
+    database: admin
+    name: "{{ pbm_user }}"
+    password: "{{ pbm_user_password }}"
+    roles:
+      - role: readWrite
+        db: admin
+      - role: backup
+        db: admin
+      - role: clusterMonitor
+        db: admin
+      - role: restore
+        db: admin
+      - role: pbmAnyAction
+        db: admin
+    connection_options:
+      - directConnection=true
+    state: present
+  when: pbm_user_count.stdout | int == 0
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+  no_log: true
+
+###############################################################################
+# 9. Create PBM configuration directory
+###############################################################################
+- name: pbm_create_config_dir
+  ansible.builtin.file:
+    path: /etc/.pbm
+    state: directory
+    owner: mongod
+    group: mongod
+    mode: "0750"
+
+###############################################################################
+# 10. Create S3 configuration file
+###############################################################################
+- name: pbm_create_s3_config
+  ansible.builtin.template:
+    src: pbm_config_s3.yaml.j2
+    dest: /etc/.pbm/config_s3.yaml
+    owner: mongod
+    group: mongod
+    mode: "0400"
+  when: pbm_s3_bucket is defined
+  register: pbm_config_result
+
+###############################################################################
+# 11. Configure PBM MongoDB URI in systemd
+###############################################################################
+- name: pbm_configure_systemd_env
+  ansible.builtin.lineinfile:
+    path: /etc/sysconfig/pbm-agent
+    line: 'PBM_MONGODB_URI="mongodb://{{ pbm_user }}:{{ pbm_user_password }}@{{ ansible_fqdn }}:{{ mongo_port }}/admin"'
+    regexp: '^PBM_MONGODB_URI='
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  register: pbm_systemd_env
+
+###############################################################################
+# 12. Create backup directory
+###############################################################################
+- name: pbm_create_backup_dir
+  ansible.builtin.file:
+    path: "{{ pbm_backup_dir }}"
+    state: directory
+    owner: mongod
+    group: mongod
+    mode: "0750"
+  when: pbm_backup_dir is defined
+
+###############################################################################
+# 13. Enable and start pbm-agent service
+###############################################################################
+- name: pbm_enable_service
+  ansible.builtin.service:
+    name: pbm-agent
+    enabled: true
+    state: started
+
+- name: pbm_restart_service
+  ansible.builtin.service:
+    name: pbm-agent
+    state: restarted
+  when: pbm_systemd_env.changed or pbm_config_result.changed
+
+###############################################################################
+# 14. Configure PBM with S3 storage (run on one host)
+###############################################################################
+- name: pbm_configure_storage
+  ansible.builtin.shell: |
+    export PBM_MONGODB_URI="mongodb://{{ pbm_user }}:{{ pbm_user_password }}@{{ ansible_fqdn }}:{{ mongo_port }}/admin"
+    pbm config --file /etc/.pbm/config_s3.yaml
+  when: 
+    - pbm_s3_bucket is defined
+    - pbm_config_result.changed
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+  no_log: true
+
+###############################################################################
+# 15. Persist PBM credentials
+###############################################################################
+- name: pbm_persist_credentials
+  ansible.builtin.copy:
+    dest: /root/pbm_credentials.txt
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      user : {{ pbm_user }}
+      pass : {{ pbm_user_password }}
+      uri  : mongodb://{{ pbm_user }}:{{ pbm_user_password }}@{{ ansible_fqdn }}:{{ mongo_port }}/admin
+      date : {{ ansible_date_time.iso8601 }}
+  when: pbm_user_count.stdout | int == 0
+  no_log: true
