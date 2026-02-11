@@ -1,12 +1,15 @@
 storage:
   type: s3
   s3:
-    region: "{{ pbm_s3_region | default('us-east-1') }}"
     bucket: "{{ pbm_s3_bucket }}"
-    prefix: "{{ pbm_s3_prefix | default('') }}"
+    {% if pbm_s3_prefix is defined and pbm_s3_prefix != '' %}
+    prefix: "{{ pbm_s3_prefix }}"
+    {% endif %}
+    region: "{{ pbm_s3_region | default('us-east-1') }}"
     {% if pbm_s3_endpoint is defined %}
     endpointUrl: "{{ pbm_s3_endpoint }}"
     {% endif %}
+    forcePathStyle: {{ pbm_s3_force_path_style | default(false) | lower }}
     credentials:
       access-key-id: "{{ pbm_s3_access_key }}"
       secret-access-key: "{{ pbm_s3_secret_key }}"
@@ -17,3 +20,10 @@ storage:
 backup:
   compression: s2
   compressionLevel: {{ pbm_compression_level | default(3) }}
+
+restore:
+  batchSize: {{ pbm_restore_batch_size | default(100) }}
+  numInsertionWorkers: {{ pbm_restore_num_insertion_workers | default(1) }}
+  numDownloadWorkers: {{ pbm_restore_num_download_workers | default(1) }}
+  maxDownloadBufferMb: {{ pbm_restore_max_download_buffer_mb | default(256) }}
+  downloadChunkMb: {{ pbm_restore_download_chunk_mb | default(16) }}

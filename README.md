@@ -93,26 +93,61 @@ mongo_pkg_version: "6.0"       # Версия MongoDB (без patch-номера
         # Настройки S3 хранилища (опционально)
         pbm_s3_bucket: "my-backup-bucket"
         pbm_s3_region: "us-east-1"
+        pbm_s3_prefix: "mongodb-backups/PROD"
         pbm_s3_access_key: "your_access_key"
         pbm_s3_secret_key: "your_secret_key"
         pbm_s3_endpoint: "https://s3.example.com"  # опционально
+        pbm_s3_force_path_style: false
+```
+
+**Пример для SberCloud Object Storage:**
+
+```yaml
+- name: Установка PBM с SberCloud OBS
+  hosts: mongodb
+  become: true
+  roles:
+    - role: psmongodb
+      vars:
+        mongo_desired_action: pbm_install
+        mongo_admin_pwd: "your_admin_password"
+        # SberCloud OBS настройки
+        pbm_s3_bucket: "p-ihub-bareos"
+        pbm_s3_prefix: "p-ihub-bareos/PROD"
+        pbm_s3_region: "ru-moscow-1"
+        pbm_s3_endpoint: "https://obs.ru-moscow-1.hc.sbercloud.ru"
+        pbm_s3_force_path_style: false
+        pbm_s3_access_key: "your_access_key"
+        pbm_s3_secret_key: "your_secret_key"
+        # Настройки restore для оптимизации нагрузки
+        pbm_restore_batch_size: 100
+        pbm_restore_num_insertion_workers: 1
+        pbm_restore_num_download_workers: 1
+        pbm_restore_max_download_buffer_mb: 256
+        pbm_restore_download_chunk_mb: 16
 ```
 
 ### Переменные для PBM:
 
-| Переменная               | Описание                                    | Значение по умолчанию                                      |
-|--------------------------|---------------------------------------------|------------------------------------------------------------|
-| `pbm_version`            | Версия PBM                                  | `2.8`                                                      |
-| `pbm_user`               | Имя пользователя MongoDB для PBM            | `pbmuser`                                                  |
-| `pbm_user_password`      | Пароль пользователя PBM                    | Генерируется автоматически                                 |
-| `pbm_backup_dir`         | Локальная директория для бэкапов           | `/data/backup`                                             |
-| `pbm_s3_bucket`          | S3 bucket для хранения бэкапов             | Не задано (обязательно для S3)                             |
-| `pbm_s3_region`          | Регион S3                                   | `us-east-1`                                                |
-| `pbm_s3_prefix`          | Префикс для объектов в S3                  | Пустая строка                                              |
-| `pbm_s3_endpoint`        | URL эндпоинта S3 (для совместимых сервисов)| Не задано                                                  |
-| `pbm_s3_access_key`      | Access Key для S3                           | Не задано (обязательно для S3)                             |
-| `pbm_s3_secret_key`      | Secret Key для S3                           | Не задано (обязательно для S3)                             |
-| `pbm_compression_level`  | Уровень сжатия (0-6)                        | `3`                                                        |
+| Переменная                           | Описание                                    | Значение по умолчанию                                      |
+|--------------------------------------|---------------------------------------------|------------------------------------------------------------|
+| `pbm_version`                        | Версия PBM                                  | `2.8`                                                      |
+| `pbm_user`                           | Имя пользователя MongoDB для PBM            | `pbmuser`                                                  |
+| `pbm_user_password`                  | Пароль пользователя PBM                    | Генерируется автоматически                                 |
+| `pbm_backup_dir`                     | Локальная директория для бэкапов           | `/data/backup`                                             |
+| `pbm_s3_bucket`                      | S3 bucket для хранения бэкапов             | Не задано (обязательно для S3)                             |
+| `pbm_s3_region`                      | Регион S3                                   | `us-east-1`                                                |
+| `pbm_s3_prefix`                      | Префикс для объектов в S3                  | Не задано                                                  |
+| `pbm_s3_endpoint`                    | URL эндпоинта S3 (для совместимых сервисов)| Не задано                                                  |
+| `pbm_s3_access_key`                  | Access Key для S3                           | Не задано (обязательно для S3)                             |
+| `pbm_s3_secret_key`                  | Secret Key для S3                           | Не задано (обязательно для S3)                             |
+| `pbm_s3_force_path_style`            | Использовать path-style URLs для S3         | `false`                                                    |
+| `pbm_compression_level`              | Уровень сжатия (0-6)                        | `3`                                                        |
+| `pbm_restore_batch_size`             | Количество документов в буфере при restore  | `100`                                                      |
+| `pbm_restore_num_insertion_workers`  | Количество потоков вставки при restore      | `1`                                                        |
+| `pbm_restore_num_download_workers`   | Количество потоков загрузки при restore     | `1`                                                        |
+| `pbm_restore_max_download_buffer_mb` | Максимальный размер буфера загрузки (MB)    | `256`                                                      |
+| `pbm_restore_download_chunk_mb`      | Размер загружаемого блока (MB)              | `16`                                                       |
 
 ### Что делает `pbm_install`:
 

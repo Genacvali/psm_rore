@@ -80,6 +80,7 @@ pbm_user: "pbmuser"
 # pbm_s3_endpoint: "https://s3.example.com"
 # pbm_s3_access_key: ""
 # pbm_s3_secret_key: ""
+# pbm_s3_force_path_style: false
 # pbm_s3_insecure_skip_tls: false
 
 # PBM backup directory (optional local storage)
@@ -87,3 +88,10 @@ pbm_backup_dir: "/data/backup"
 
 # PBM compression settings
 pbm_compression_level: 3
+
+# PBM restore optimization settings
+pbm_restore_batch_size: 100                  # Количество документов в буфере
+pbm_restore_num_insertion_workers: 1          # Количество потоков вставки
+pbm_restore_num_download_workers: 1           # Количество потоков загрузки
+pbm_restore_max_download_buffer_mb: 256       # Максимальный размер буфера загрузки (MB)
+pbm_restore_download_chunk_mb: 16             # Размер загружаемого блока (MB)
