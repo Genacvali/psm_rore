@@ -3,7 +3,14 @@
 # ==================================================================
 
 ###############################################################################
-# 0. Add Percona PBM repository
+# 0. PBM Installation Started
+###############################################################################
+- name: pbm_install_start
+  ansible.builtin.debug:
+    msg: "======> Starting Percona Backup for MongoDB (PBM) installation <======"
+
+###############################################################################
+# 1. Add Percona PBM repository
 ###############################################################################
 - name: pbm_add_repository
   ansible.builtin.yum_repository:
@@ -14,7 +21,7 @@
     gpgcheck: 0
 
 ###############################################################################
-# 1. Install Percona Backup for MongoDB packages
+# 2. Install Percona Backup for MongoDB packages
 ###############################################################################
 - name: pbm_install_packages
   ansible.builtin.dnf:

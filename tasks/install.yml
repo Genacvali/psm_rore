@@ -81,14 +81,18 @@
   tags: [mongodb_keyfile]
 
 ###############################################################################
-# 6. Install Percona Backup for MongoDB (optional)
+# 6. Install Percona Backup for MongoDB (by default)
 ###############################################################################
-- name: mongodb_pbm_check
+- name: mongodb_pbm_status_check
   ansible.builtin.debug:
-    msg: "PBM installation: {{ 'ENABLED (mongo_install_pbm=true)' if (mongo_install_pbm | bool) else 'SKIPPED (mongo_install_pbm=false)' }}"
-  tags: [mongodb_pbm_install]
+    msg: |
+      ===== PBM Installation Status =====
+      mongo_install_pbm = {{ mongo_install_pbm | default('NOT_SET') }}
+      Will install PBM: {{ mongo_install_pbm | default(true) | bool }}
+      ===================================
+  tags: [mongodb_pbm_install, mongodb_install]
 
 - name: mongodb_pbm_install
   ansible.builtin.import_tasks: pbm_install.yml
-  when: mongo_install_pbm | bool
-  tags: [mongodb_pbm_install]
+  when: mongo_install_pbm | default(true) | bool
+  tags: [mongodb_pbm_install, mongodb_install]
