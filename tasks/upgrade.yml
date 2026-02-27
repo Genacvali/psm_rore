@@ -86,152 +86,56 @@
       ================================================
 
 ###############################################################################
-# 4. Determine ReplicaSet topology
+# 4. Perform rolling upgrade (one node at a time)
 ###############################################################################
-- name: mongodb_upgrade_get_rs_status
-  ansible.builtin.command:
-    argv:
-      - mongosh
-      - --quiet
-      - --host
-      - "{{ ansible_fqdn }}"
-      - --port
-      - "{{ mongo_port }}"
-      - -u
-      - "{{ mongo_admin_user | default('admin') }}"
-      - -p
-      - "{{ mongo_admin_pwd }}"
-      - --authenticationDatabase
-      - admin
-      - --eval
-      - 'JSON.stringify(rs.status().members.find(m => m.name.includes("{{ ansible_fqdn }}")))'
-  register: rs_member_info
-  changed_when: false
-  failed_when: false
-  no_log: true
-
-- name: mongodb_upgrade_parse_member_info
-  ansible.builtin.set_fact:
-    is_primary: "{{ (rs_member_info.stdout | from_json).stateStr == 'PRIMARY' }}"
-  when: rs_member_info.rc == 0
-
-- name: mongodb_upgrade_set_default_role
-  ansible.builtin.set_fact:
-    is_primary: false
-  when: rs_member_info.rc != 0
-
-###############################################################################
-# 5. Upgrade secondary nodes first (non-PRIMARY)
-###############################################################################
-- name: mongodb_upgrade_secondary_first
+- name: mongodb_upgrade_info
   ansible.builtin.debug:
     msg: |
       ===== Upgrade Strategy =====
-      This host: {{ ansible_fqdn }}
-      Role: {{ 'PRIMARY' if is_primary else 'SECONDARY/ARBITER' }}
+      Rolling upgrade: nodes will be upgraded one at a time
+      Current host: {{ ansible_fqdn }}
       
-      Upgrade order:
-      1. Secondary nodes first
-      2. Primary node last
+      Process:
+      1. Stop mongod
+      2. Update packages
+      3. Start mongod
+      4. Wait for node to become ready
       ============================
 
 - name: mongodb_upgrade_stop_service
   ansible.builtin.service:
     name: mongod
     state: stopped
-  when: not (is_primary | bool)
 
-- name: mongodb_upgrade_packages_secondary
+- name: mongodb_upgrade_packages
   ansible.builtin.dnf:
     name: "{{ percona_package_glob }}"
     state: present
     allow_downgrade: false
-  when: not (is_primary | bool)
-  register: upgrade_result_secondary
+  register: upgrade_result
 
 - name: mongodb_upgrade_start_service
   ansible.builtin.service:
     name: mongod
     state: started
-  when: not (is_primary | bool)
 
-- name: mongodb_upgrade_wait_secondary_ready
+- name: mongodb_upgrade_wait_ready
   ansible.builtin.wait_for:
     host: "{{ ansible_default_ipv4.address }}"
     port: "{{ mongo_port }}"
     delay: 5
     timeout: 120
-  when: not (is_primary | bool)
 
 ###############################################################################
-# 6. Wait for all secondaries to complete
+# 5. Pause between nodes to allow ReplicaSet to stabilize
 ###############################################################################
-- name: mongodb_upgrade_wait_for_secondaries
+- name: mongodb_upgrade_pause_between_nodes
   ansible.builtin.pause:
-    prompt: "Waiting for all secondary nodes to upgrade and stabilize..."
-    seconds: 30
-  when: is_primary | bool
-  run_once: true
+    prompt: "Node {{ ansible_fqdn }} upgraded. Waiting for ReplicaSet to stabilize before next node..."
+    seconds: 20
 
 ###############################################################################
-# 7. Upgrade PRIMARY node (with stepdown)
-###############################################################################
-- name: mongodb_upgrade_stepdown_primary
-  ansible.builtin.command:
-    argv:
-      - mongosh
-      - --quiet
-      - --host
-      - "{{ ansible_fqdn }}"
-      - --port
-      - "{{ mongo_port }}"
-      - -u
-      - "{{ mongo_admin_user | default('admin') }}"
-      - -p
-      - "{{ mongo_admin_pwd }}"
-      - --authenticationDatabase
-      - admin
-      - --eval
-      - 'rs.stepDown(60)'
-  when: is_primary | bool
-  ignore_errors: true
-  no_log: true
-
-- name: mongodb_upgrade_wait_after_stepdown
-  ansible.builtin.pause:
-    seconds: 10
-  when: is_primary | bool
-
-- name: mongodb_upgrade_stop_service_primary
-  ansible.builtin.service:
-    name: mongod
-    state: stopped
-  when: is_primary | bool
-
-- name: mongodb_upgrade_packages_primary
-  ansible.builtin.dnf:
-    name: "{{ percona_package_glob }}"
-    state: present
-    allow_downgrade: false
-  when: is_primary | bool
-  register: upgrade_result_primary
-
-- name: mongodb_upgrade_start_service_primary
-  ansible.builtin.service:
-    name: mongod
-    state: started
-  when: is_primary | bool
-
-- name: mongodb_upgrade_wait_primary_ready
-  ansible.builtin.wait_for:
-    host: "{{ ansible_default_ipv4.address }}"
-    port: "{{ mongo_port }}"
-    delay: 5
-    timeout: 120
-  when: is_primary | bool
-
-###############################################################################
-# 8. Verify upgrade success
+# 6. Verify upgrade success
 ###############################################################################
 - name: mongodb_upgrade_verify_version
   ansible.builtin.shell: |
@@ -251,7 +155,7 @@
       Upgrade verification failed. Current version: {{ new_version_check.stdout }}
 
 ###############################################################################
-# 9. Display post-upgrade instructions
+# 7. Display post-upgrade instructions
 ###############################################################################
 - name: mongodb_upgrade_post_instructions
   ansible.builtin.debug:

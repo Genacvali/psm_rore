@@ -213,24 +213,27 @@ mongo_pkg_version: "6.0"       # Версия MongoDB (без patch-номера
 - name: Upgrade MongoDB
   hosts: mongodb
   become: true
+  serial: 1  # ВАЖНО: обновлять по одному узлу за раз!
   roles:
     - role: psmongodb
       vars:
         mongo_desired_action: upgrade
         mongo_pkg_version: "8.0"  # Целевая версия
-        mongo_admin_pwd: "your_admin_password"
 ```
+
+⚠️ **ВАЖНО:** Используйте `serial: 1` для последовательного обновления узлов по одному!
 
 ### Что делает upgrade:
 
-1. ✅ Проверяет текущую версию MongoDB
+1. ✅ Проверяет текущую версию MongoDB (через `mongod --version`)
 2. ✅ Проверяет, что целевая версия новее текущей
 3. ✅ **Предотвращает пропуск версий** (нельзя с 6.0 сразу на 8.0!)
-4. ✅ Обновляет secondary узлы в правильном порядке
-5. ✅ Выполняет stepDown для PRIMARY
-6. ✅ Обновляет PRIMARY узел последним
-7. ✅ Проверяет успешность обновления
-8. ⚠️ Выводит инструкцию для `setFeatureCompatibilityVersion`
+4. ✅ Останавливает mongod на текущем узле
+5. ✅ Обновляет пакеты MongoDB
+6. ✅ Запускает mongod и ждет готовности
+7. ✅ Делает паузу для стабилизации ReplicaSet
+8. ✅ Переходит к следующему узлу
+9. ⚠️ Выводит инструкцию для `setFeatureCompatibilityVersion`
 
 ### ⚠️ Важные ограничения:
 
