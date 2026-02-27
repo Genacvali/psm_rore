@@ -111,6 +111,7 @@
   ansible.builtin.dnf:
     name: "{{ percona_package_glob }}"
     state: present
+    exclude: "*-debug*"
     allow_downgrade: false
   register: upgrade_result
 
