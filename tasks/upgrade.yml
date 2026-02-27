@@ -1,0 +1,290 @@
+# ==================================================================
+# tasks/upgrade.yml – MongoDB version upgrade workflow
+# ==================================================================
+
+###############################################################################
+# 0. Get current MongoDB version
+###############################################################################
+- name: mongodb_upgrade_get_current_version
+  ansible.builtin.shell: |
+    if rpm -q percona-server-mongodb-server &>/dev/null; then
+      rpm -q percona-server-mongodb-server --queryformat '%{VERSION}' | grep -oE '^[0-9]+\.[0-9]+'
+    else
+      echo "not_installed"
+    fi
+  register: current_version_raw
+  changed_when: false
+  failed_when: false
+
+- name: mongodb_upgrade_set_current_version
+  ansible.builtin.set_fact:
+    mongo_current_version: "{{ current_version_raw.stdout }}"
+
+- name: mongodb_upgrade_show_versions
+  ansible.builtin.debug:
+    msg: |
+      ===== MongoDB Upgrade Info =====
+      Current version: {{ mongo_current_version }}
+      Target version:  {{ mongo_pkg_version }}
+      ================================
+
+###############################################################################
+# 1. Validate MongoDB is installed
+###############################################################################
+- name: mongodb_upgrade_validate_installed
+  ansible.builtin.assert:
+    that:
+      - mongo_current_version != "not_installed"
+    fail_msg: |
+      MongoDB is not installed! Cannot perform upgrade.
+      Use mongo_desired_action: install instead.
+
+###############################################################################
+# 2. Validate target version is newer
+###############################################################################
+- name: mongodb_upgrade_validate_newer
+  ansible.builtin.assert:
+    that:
+      - mongo_pkg_version is version(mongo_current_version, '>')
+    fail_msg: |
+      Target version {{ mongo_pkg_version }} is not newer than current version {{ mongo_current_version }}.
+      Downgrades are not supported via this action.
+
+###############################################################################
+# 3. Validate no version skip (e.g., 6.0 -> 8.0 forbidden)
+###############################################################################
+- name: mongodb_upgrade_calculate_version_diff
+  ansible.builtin.set_fact:
+    current_major: "{{ mongo_current_version.split('.')[0] | int }}"
+    target_major: "{{ mongo_pkg_version.split('.')[0] | int }}"
+
+- name: mongodb_upgrade_validate_no_skip
+  ansible.builtin.assert:
+    that:
+      - (target_major | int) - (current_major | int) <= 1
+    fail_msg: |
+      ===== UPGRADE ERROR: Version Skip Detected =====
+      
+      You are trying to upgrade from {{ mongo_current_version }} to {{ mongo_pkg_version }}.
+      
+      MongoDB does NOT support skipping major versions!
+      
+      Required upgrade path:
+      {% if current_major | int == 6 and target_major | int == 8 %}
+        1. First upgrade to MongoDB 7.0
+        2. Run setFeatureCompatibilityVersion("7.0")
+        3. Then upgrade to MongoDB 8.0
+      {% elif current_major | int == 5 and target_major | int == 7 %}
+        1. First upgrade to MongoDB 6.0
+        2. Run setFeatureCompatibilityVersion("6.0")
+        3. Then upgrade to MongoDB 7.0
+      {% else %}
+        Upgrade one major version at a time: {{ mongo_current_version }} -> {{ current_major | int + 1 }}.0 -> {{ mongo_pkg_version }}
+      {% endif %}
+      
+      Please set mongo_pkg_version to the intermediate version first.
+      ================================================
+
+###############################################################################
+# 4. Determine ReplicaSet topology
+###############################################################################
+- name: mongodb_upgrade_get_rs_status
+  ansible.builtin.command:
+    argv:
+      - mongosh
+      - --quiet
+      - --host
+      - "{{ ansible_fqdn }}"
+      - --port
+      - "{{ mongo_port }}"
+      - -u
+      - "{{ mongo_admin_user | default('admin') }}"
+      - -p
+      - "{{ mongo_admin_pwd }}"
+      - --authenticationDatabase
+      - admin
+      - --eval
+      - 'JSON.stringify(rs.status().members.find(m => m.name.includes("{{ ansible_fqdn }}")))'
+  register: rs_member_info
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: mongodb_upgrade_parse_member_info
+  ansible.builtin.set_fact:
+    is_primary: "{{ (rs_member_info.stdout | from_json).stateStr == 'PRIMARY' }}"
+  when: rs_member_info.rc == 0
+
+- name: mongodb_upgrade_set_default_role
+  ansible.builtin.set_fact:
+    is_primary: false
+  when: rs_member_info.rc != 0
+
+###############################################################################
+# 5. Upgrade secondary nodes first (non-PRIMARY)
+###############################################################################
+- name: mongodb_upgrade_secondary_first
+  ansible.builtin.debug:
+    msg: |
+      ===== Upgrade Strategy =====
+      This host: {{ ansible_fqdn }}
+      Role: {{ 'PRIMARY' if is_primary else 'SECONDARY/ARBITER' }}
+      
+      Upgrade order:
+      1. Secondary nodes first
+      2. Primary node last
+      ============================
+
+- name: mongodb_upgrade_stop_service
+  ansible.builtin.service:
+    name: mongod
+    state: stopped
+  when: not (is_primary | bool)
+
+- name: mongodb_upgrade_packages_secondary
+  ansible.builtin.dnf:
+    name: "{{ percona_package_glob }}"
+    state: present
+    allow_downgrade: false
+  when: not (is_primary | bool)
+  register: upgrade_result_secondary
+
+- name: mongodb_upgrade_start_service
+  ansible.builtin.service:
+    name: mongod
+    state: started
+  when: not (is_primary | bool)
+
+- name: mongodb_upgrade_wait_secondary_ready
+  ansible.builtin.wait_for:
+    host: "{{ ansible_default_ipv4.address }}"
+    port: "{{ mongo_port }}"
+    delay: 5
+    timeout: 120
+  when: not (is_primary | bool)
+
+###############################################################################
+# 6. Wait for all secondaries to complete
+###############################################################################
+- name: mongodb_upgrade_wait_for_secondaries
+  ansible.builtin.pause:
+    prompt: "Waiting for all secondary nodes to upgrade and stabilize..."
+    seconds: 30
+  when: is_primary | bool
+  run_once: true
+
+###############################################################################
+# 7. Upgrade PRIMARY node (with stepdown)
+###############################################################################
+- name: mongodb_upgrade_stepdown_primary
+  ansible.builtin.command:
+    argv:
+      - mongosh
+      - --quiet
+      - --host
+      - "{{ ansible_fqdn }}"
+      - --port
+      - "{{ mongo_port }}"
+      - -u
+      - "{{ mongo_admin_user | default('admin') }}"
+      - -p
+      - "{{ mongo_admin_pwd }}"
+      - --authenticationDatabase
+      - admin
+      - --eval
+      - 'rs.stepDown(60)'
+  when: is_primary | bool
+  ignore_errors: true
+  no_log: true
+
+- name: mongodb_upgrade_wait_after_stepdown
+  ansible.builtin.pause:
+    seconds: 10
+  when: is_primary | bool
+
+- name: mongodb_upgrade_stop_service_primary
+  ansible.builtin.service:
+    name: mongod
+    state: stopped
+  when: is_primary | bool
+
+- name: mongodb_upgrade_packages_primary
+  ansible.builtin.dnf:
+    name: "{{ percona_package_glob }}"
+    state: present
+    allow_downgrade: false
+  when: is_primary | bool
+  register: upgrade_result_primary
+
+- name: mongodb_upgrade_start_service_primary
+  ansible.builtin.service:
+    name: mongod
+    state: started
+  when: is_primary | bool
+
+- name: mongodb_upgrade_wait_primary_ready
+  ansible.builtin.wait_for:
+    host: "{{ ansible_default_ipv4.address }}"
+    port: "{{ mongo_port }}"
+    delay: 5
+    timeout: 120
+  when: is_primary | bool
+
+###############################################################################
+# 8. Verify upgrade success
+###############################################################################
+- name: mongodb_upgrade_verify_version
+  ansible.builtin.shell: |
+    rpm -q percona-server-mongodb-server --queryformat '%{VERSION}' | grep -oE '^[0-9]+\.[0-9]+'
+  register: new_version_check
+  changed_when: false
+
+- name: mongodb_upgrade_verify_success
+  ansible.builtin.assert:
+    that:
+      - new_version_check.stdout is version(mongo_current_version, '>')
+    success_msg: |
+      ===== Upgrade Successful =====
+      Upgraded from {{ mongo_current_version }} to {{ new_version_check.stdout }}
+      ==============================
+    fail_msg: |
+      Upgrade verification failed. Current version: {{ new_version_check.stdout }}
+
+###############################################################################
+# 9. Display post-upgrade instructions
+###############################################################################
+- name: mongodb_upgrade_post_instructions
+  ansible.builtin.debug:
+    msg: |
+      
+      ╔════════════════════════════════════════════════════════════════════╗
+      ║          MongoDB Upgrade Completed Successfully!                  ║
+      ╚════════════════════════════════════════════════════════════════════╝
+      
+      📋 IMPORTANT: Manual Post-Upgrade Steps Required!
+      
+      All MongoDB nodes have been upgraded from {{ mongo_current_version }} to {{ new_version_check.stdout }}
+      
+      ⚠️  You MUST now update Feature Compatibility Version (FCV) manually:
+      
+      1. Connect to PRIMARY node:
+         mongosh --host <primary-host> -u admin -p <password> --authenticationDatabase admin
+      
+      2. Verify all nodes are running the new version:
+         db.adminCommand({ getParameter: 1, featureCompatibilityVersion: 1 })
+      
+      3. Update FCV to enable new features:
+         db.adminCommand({ setFeatureCompatibilityVersion: "{{ mongo_pkg_version }}" })
+      
+      4. Verify FCV was updated:
+         db.adminCommand({ getParameter: 1, featureCompatibilityVersion: 1 })
+      
+      📖 Documentation:
+      https://www.mongodb.com/docs/manual/release-notes/{{ mongo_pkg_version }}/
+      
+      ⚡ Until you run setFeatureCompatibilityVersion, MongoDB will run
+         in backwards-compatible mode and new {{ mongo_pkg_version }} features will NOT be available.
+      
+      ════════════════════════════════════════════════════════════════════
+  run_once: true
+  delegate_to: localhost

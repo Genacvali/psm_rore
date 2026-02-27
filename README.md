@@ -52,6 +52,7 @@ mongo_pkg_version: "6.0"       # Версия MongoDB (без patch-номера
 
 - `install` – Полная установка MongoDB + ReplicaSet + пользователь + PBM (можно отключить PBM через `mongo_install_pbm: false`)
 - `update_conf` – Только перерендерить `mongod.conf` и перезапустить
+- `upgrade` – Обновление MongoDB до новой версии с проверками совместимости
 - `wipe` – Полное удаление MongoDB и связанных данных
 - `pbm_install` – Только установка и настройка Percona Backup for MongoDB (для добавления на существующий кластер)
 
@@ -202,6 +203,123 @@ mongo_pkg_version: "6.0"       # Версия MongoDB (без patch-номера
 
 ---
 
+## ⬆️ Обновление MongoDB (Upgrade)
+
+Роль поддерживает безопасное обновление MongoDB до новой версии с автоматическими проверками.
+
+### Использование:
+
+```yaml
+- name: Upgrade MongoDB
+  hosts: mongodb
+  become: true
+  roles:
+    - role: psmongodb
+      vars:
+        mongo_desired_action: upgrade
+        mongo_pkg_version: "8.0"  # Целевая версия
+        mongo_admin_pwd: "your_admin_password"
+```
+
+### Что делает upgrade:
+
+1. ✅ Проверяет текущую версию MongoDB
+2. ✅ Проверяет, что целевая версия новее текущей
+3. ✅ **Предотвращает пропуск версий** (нельзя с 6.0 сразу на 8.0!)
+4. ✅ Обновляет secondary узлы в правильном порядке
+5. ✅ Выполняет stepDown для PRIMARY
+6. ✅ Обновляет PRIMARY узел последним
+7. ✅ Проверяет успешность обновления
+8. ⚠️ Выводит инструкцию для `setFeatureCompatibilityVersion`
+
+### ⚠️ Важные ограничения:
+
+**MongoDB НЕ поддерживает пропуск major версий!**
+
+❌ **Нельзя:**
+- 6.0 → 8.0 напрямую
+- 5.0 → 7.0 напрямую
+
+✅ **Правильный путь обновления:**
+
+```
+6.0 → 7.0 → 8.0
+```
+
+**Пример пошагового обновления:**
+
+```yaml
+# Шаг 1: Обновление с 6.0 на 7.0
+- hosts: mongodb
+  roles:
+    - role: psmongodb
+      vars:
+        mongo_desired_action: upgrade
+        mongo_pkg_version: "7.0"
+```
+
+После завершения выполните вручную:
+```javascript
+db.adminCommand({ setFeatureCompatibilityVersion: "7.0" })
+```
+
+```yaml
+# Шаг 2: Обновление с 7.0 на 8.0
+- hosts: mongodb
+  roles:
+    - role: psmongodb
+      vars:
+        mongo_desired_action: upgrade
+        mongo_pkg_version: "8.0"
+```
+
+После завершения выполните вручную:
+```javascript
+db.adminCommand({ setFeatureCompatibilityVersion: "8.0" })
+```
+
+### 🔴 Ошибка при попытке пропустить версию:
+
+Если попытаться обновиться с 6.0 на 8.0, вы получите ошибку:
+
+```
+===== UPGRADE ERROR: Version Skip Detected =====
+
+You are trying to upgrade from 6.0 to 8.0.
+
+MongoDB does NOT support skipping major versions!
+
+Required upgrade path:
+  1. First upgrade to MongoDB 7.0
+  2. Run setFeatureCompatibilityVersion("7.0")
+  3. Then upgrade to MongoDB 8.0
+
+Please set mongo_pkg_version to the intermediate version first.
+================================================
+```
+
+### 📋 Post-Upgrade: Feature Compatibility Version
+
+После успешного обновления **обязательно** выполните вручную:
+
+```bash
+# 1. Подключитесь к PRIMARY
+mongosh --host <primary-host> -u admin -p <password> --authenticationDatabase admin
+
+# 2. Проверьте текущий FCV
+db.adminCommand({ getParameter: 1, featureCompatibilityVersion: 1 })
+
+# 3. Обновите FCV
+db.adminCommand({ setFeatureCompatibilityVersion: "8.0" })
+
+# 4. Проверьте обновление
+db.adminCommand({ getParameter: 1, featureCompatibilityVersion: 1 })
+```
+
+⚡ **До выполнения `setFeatureCompatibilityVersion` новые возможности MongoDB 8.0 будут недоступны!**
+
+---
+
 ## 🧹 Удаление MongoDB
 
 ```yaml
@@ -223,6 +341,7 @@ mongo_desired_action: wipe
 ### Основные действия:
 - `mongodb_install` - полная установка MongoDB + ReplicaSet + пользователи + PBM
 - `mongodb_update_conf` - только обновление конфигурации
+- `mongodb_upgrade` - обновление MongoDB до новой версии
 - `mongodb_wipe` - полное удаление MongoDB
 - `mongodb_pbm_install` - только установка PBM (отдельное действие)
 

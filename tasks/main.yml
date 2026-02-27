@@ -8,9 +8,9 @@
 - name: mongodb_action_validate
   ansible.builtin.assert:
     that:
-      - mongo_desired_action in ['install', 'update_conf', 'wipe', 'pbm_install', 'none']
+      - mongo_desired_action in ['install', 'update_conf', 'upgrade', 'wipe', 'pbm_install', 'none']
     fail_msg: >
-      "mongo_desired_action must be one of: install | update_conf | wipe | pbm_install | none
+      "mongo_desired_action must be one of: install | update_conf | upgrade | wipe | pbm_install | none
        (got {{ mongo_desired_action }})"
 
 # ------------------------------------------------------------------
@@ -30,7 +30,15 @@
   tags: [mongodb_update_conf]
 
 # ------------------------------------------------------------------
-# 3. Wipe MongoDB completely
+# 3. Upgrade MongoDB to a new version
+# ------------------------------------------------------------------
+- name: mongodb_upgrade
+  ansible.builtin.import_tasks: upgrade.yml
+  when: mongo_desired_action == "upgrade"
+  tags: [mongodb_upgrade]
+
+# ------------------------------------------------------------------
+# 4. Wipe MongoDB completely
 # ------------------------------------------------------------------
 - name: mongodb_wipe
   ansible.builtin.import_tasks: wipe.yml
@@ -38,7 +46,7 @@
   tags: [mongodb_wipe]
 
 # ------------------------------------------------------------------
-# 4. Install Percona Backup for MongoDB
+# 5. Install Percona Backup for MongoDB
 # ------------------------------------------------------------------
 - name: mongodb_pbm_install
   ansible.builtin.import_tasks: pbm_install.yml
@@ -46,7 +54,7 @@
   tags: [mongodb_pbm_install]
 
 # ------------------------------------------------------------------
-# 5. No-op (mongo_desired_action = none) ─ play exits silently
+# 6. No-op (mongo_desired_action = none) ─ play exits silently
 # ------------------------------------------------------------------
 - name: mongodb_noop
   ansible.builtin.debug:

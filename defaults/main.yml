@@ -5,7 +5,7 @@
 # ------------------------------------------------
 # 0. Role switch            (do nothing by default)
 # ------------------------------------------------
-# valid values:  install | update_conf | wipe | pbm_install | none
+# valid values:  install | update_conf | upgrade | wipe | pbm_install | none
 mongo_desired_action: "none"
 
 # ------------------------------------------------
