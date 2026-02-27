@@ -15,7 +15,7 @@ mongo_desired_action: "none"
 mongo_pkg_version: "6.0.21"
 
 # Derived branch X.Y from version (e.g. 6.0.21 → 6.0)
-mongo_branch: "{{ mongo_pkg_version | regex_search('^\\d+\\.\\d+') }}"
+mongo_branch: "{{ mongo_pkg_version | string | regex_search('^\\d+\\.\\d+') }}"
 
 # Internal Nexus mirror for Percona repository
 percona_repo_name: "mongo-{{ mongo_branch | replace('.', '') }}-percona"

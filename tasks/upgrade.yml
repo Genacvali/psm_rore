@@ -45,7 +45,7 @@
 - name: mongodb_upgrade_validate_newer
   ansible.builtin.assert:
     that:
-      - mongo_pkg_version is version(mongo_current_version, '>')
+      - mongo_pkg_version | string is version(mongo_current_version, '>')
     fail_msg: |
       Target version {{ mongo_pkg_version }} is not newer than current version {{ mongo_current_version }}.
       Downgrades are not supported via this action.
@@ -55,8 +55,8 @@
 ###############################################################################
 - name: mongodb_upgrade_calculate_version_diff
   ansible.builtin.set_fact:
-    current_major: "{{ mongo_current_version.split('.')[0] | int }}"
-    target_major: "{{ mongo_pkg_version.split('.')[0] | int }}"
+    current_major: "{{ mongo_current_version | string | split('.') | first | int }}"
+    target_major: "{{ mongo_pkg_version | string | split('.') | first | int }}"
 
 - name: mongodb_upgrade_validate_no_skip
   ansible.builtin.assert:
