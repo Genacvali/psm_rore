@@ -88,36 +88,63 @@
   run_once: true
 
 ###############################################################################
-# 2. Install Percona Telemetry Agent (required for MongoDB 8.0+)
+# 2. Install exact Percona build (allow downgrade)
 ###############################################################################
 - name: mongodb_check_version_8plus
   ansible.builtin.set_fact:
     mongo_version_8plus: "{{ mongo_branch | string | regex_search('^(\\d+)') | int >= 8 }}"
 
-- name: mongodb_install_telemetry_agent
-  ansible.builtin.dnf:
-    name: "percona-telemetry-agent"
-    state: present
-  when: 
-    - not mongo_prepare_os_skip | bool
-    - mongo_version_8plus | bool
-  ignore_errors: true  # Continue if telemetry agent is not available
-
-###############################################################################
-# 3. Install exact Percona build (allow downgrade)
-###############################################################################
-- name: mongodb_install_packages
+# For MongoDB < 8.0: Standard install
+- name: mongodb_install_packages_standard
   ansible.builtin.dnf:
     name: "{{ percona_package_glob }}"
     state: present
     exclude: "*-debug*"
     allow_downgrade: true
   register: percona_install
-  when: not mongo_prepare_os_skip | bool
+  when: 
+    - not mongo_prepare_os_skip | bool
+    - not (mongo_version_8plus | bool)
+
+# For MongoDB 8.0+: Download packages first
+- name: mongodb_create_temp_dir
+  ansible.builtin.file:
+    path: /tmp/mongodb_packages
+    state: directory
+    mode: "0755"
+  when: 
+    - not mongo_prepare_os_skip | bool
+    - mongo_version_8plus | bool
+
+- name: mongodb_download_packages_8plus
+  ansible.builtin.command:
+    cmd: dnf download --destdir=/tmp/mongodb_packages --exclude="*-debug*" {{ percona_package_glob }}
+  when: 
+    - not mongo_prepare_os_skip | bool
+    - mongo_version_8plus | bool
+  changed_when: false
+
+# For MongoDB 8.0+: Install downloaded RPMs without dependency check
+- name: mongodb_install_packages_8plus
+  ansible.builtin.command:
+    cmd: rpm -Uvh --force --nodeps /tmp/mongodb_packages/*.rpm
+  when: 
+    - not mongo_prepare_os_skip | bool
+    - mongo_version_8plus | bool
+  register: percona_install
+  changed_when: true
+
+- name: mongodb_cleanup_temp_packages
+  ansible.builtin.file:
+    path: /tmp/mongodb_packages
+    state: absent
+  when: 
+    - not mongo_prepare_os_skip | bool
+    - mongo_version_8plus | bool
 
 
 ###############################################################################
-# 4. Python tooling for community.mongodb modules
+# 3. Python tooling for community.mongodb modules
 ###############################################################################
 - name: mongodb_python_pip
   ansible.builtin.dnf:
@@ -133,7 +160,7 @@
     PIP_TRUSTED_HOST: "{{ pip_trusted_host }}"
 
 ###############################################################################
-# 5. Data, log & keyFile directories
+# 4. Data, log & keyFile directories
 ###############################################################################
 - name: mongodb_dirs
   ansible.builtin.file:
@@ -148,7 +175,7 @@
     - { path: "{{ mongo_keyfile_dir }}",   mode: "0700" }
 
 ###############################################################################
-# 6. Version summary (read only)
+# 5. Version summary (read only)
 ###############################################################################
 - name: mongodb_version_summary
   ansible.builtin.command: rpm -q percona-server-mongodb-server
