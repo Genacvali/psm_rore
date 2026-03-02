@@ -107,6 +107,17 @@
     name: mongod
     state: stopped
 
+- name: mongodb_upgrade_check_version_8plus
+  ansible.builtin.set_fact:
+    mongo_version_8plus: "{{ mongo_branch | string | regex_search('^(\\d+)') | int >= 8 }}"
+
+- name: mongodb_upgrade_install_telemetry_agent
+  ansible.builtin.dnf:
+    name: "percona-telemetry-agent"
+    state: present
+  when: mongo_version_8plus | bool
+  ignore_errors: true  # Continue if telemetry agent is not available
+
 - name: mongodb_upgrade_packages
   ansible.builtin.dnf:
     name: "{{ percona_package_glob }}"

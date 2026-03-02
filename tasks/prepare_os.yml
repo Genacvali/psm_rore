@@ -88,7 +88,23 @@
   run_once: true
 
 ###############################################################################
-# 2. Install exact Percona build (allow downgrade)
+# 2. Install Percona Telemetry Agent (required for MongoDB 8.0+)
+###############################################################################
+- name: mongodb_check_version_8plus
+  ansible.builtin.set_fact:
+    mongo_version_8plus: "{{ mongo_branch | string | regex_search('^(\\d+)') | int >= 8 }}"
+
+- name: mongodb_install_telemetry_agent
+  ansible.builtin.dnf:
+    name: "percona-telemetry-agent"
+    state: present
+  when: 
+    - not mongo_prepare_os_skip | bool
+    - mongo_version_8plus | bool
+  ignore_errors: true  # Continue if telemetry agent is not available
+
+###############################################################################
+# 3. Install exact Percona build (allow downgrade)
 ###############################################################################
 - name: mongodb_install_packages
   ansible.builtin.dnf:
@@ -101,7 +117,7 @@
 
 
 ###############################################################################
-# 3. Python tooling for community.mongodb modules
+# 4. Python tooling for community.mongodb modules
 ###############################################################################
 - name: mongodb_python_pip
   ansible.builtin.dnf:
@@ -117,7 +133,7 @@
     PIP_TRUSTED_HOST: "{{ pip_trusted_host }}"
 
 ###############################################################################
-# 4. Data, log & keyFile directories
+# 5. Data, log & keyFile directories
 ###############################################################################
 - name: mongodb_dirs
   ansible.builtin.file:
@@ -132,7 +148,7 @@
     - { path: "{{ mongo_keyfile_dir }}",   mode: "0700" }
 
 ###############################################################################
-# 5. Version summary (read only)
+# 6. Version summary (read only)
 ###############################################################################
 - name: mongodb_version_summary
   ansible.builtin.command: rpm -q percona-server-mongodb-server

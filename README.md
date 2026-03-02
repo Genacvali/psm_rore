@@ -18,7 +18,7 @@
 ### Обязательные (обычно в `group_vars` или `inventory`):
 
 ```yaml
-mongo_desired_action: install  # или 'update_conf', 'wipe'
+mongo_desired_action: install  # или 'update_conf', 'upgrade', 'wipe'
 
 mongo_rs_members:
   - host: hostname1
@@ -28,7 +28,21 @@ mongo_rs_members:
   - host: hostname3
     role: arbiter
 
-mongo_pkg_version: "6.0"       # Версия MongoDB (без patch-номера)
+mongo_pkg_version: "8.0"       # Версия MongoDB: major.minor (8.0) или точная (8.0.16)
+```
+
+### 📌 Указание версии MongoDB:
+
+Переменная `mongo_pkg_version` поддерживает два формата:
+
+**Формат 1: Major.Minor (автоматически выбирается последняя patch-версия)**
+```yaml
+mongo_pkg_version: "8.0"   # Установит последнюю доступную 8.0.x
+```
+
+**Формат 2: Major.Minor.Patch (точная версия)**
+```yaml
+mongo_pkg_version: "8.0.16"   # Установит точно 8.0.16
 ```
 
 ### Опциональные:

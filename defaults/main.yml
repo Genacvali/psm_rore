@@ -11,17 +11,22 @@ mongo_desired_action: "none"
 # ------------------------------------------------
 # 1. Versioning & repository
 # ------------------------------------------------
-# Exact EVR or major.minor (e.g. 7.0.12-5.el9  or 7.0)
+# Exact version: major.minor.patch (e.g. 8.0.16) or major.minor (e.g. 8.0)
 mongo_pkg_version: "6.0.21"
 
 # Derived branch X.Y from version (e.g. 6.0.21 → 6.0)
 mongo_branch: "{{ mongo_pkg_version | string | regex_search('^\\d+\\.\\d+') }}"
 
+# Full version for precise package matching (e.g. 8.0.16 or 8.0)
+mongo_full_version: "{{ mongo_pkg_version | string }}"
+
 # Internal Nexus mirror for Percona repository
 percona_repo_name: "mongo-{{ mongo_branch | replace('.', '') }}-percona"
 percona_baseurl: "https://nexus.sberdevices.ru/repository/yum_percona_mongodb_proxy/psmdb-{{ mongo_branch | replace('.', '') }}/yum/release/$releasever/RPMS/$basearch"
 percona_repo_gpgcheck: 0            # mirror is unsigned
-percona_package_glob: "percona-server-mongodb*{{ mongo_branch }}*"
+
+# Package glob pattern - uses full version if 3+ parts, otherwise major.minor
+percona_package_glob: "percona-server-mongodb*{{ mongo_full_version }}*"
 
 
 # ------------------------------------------------
