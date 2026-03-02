@@ -53,8 +53,19 @@
   when: thp_unit.changed
 
 ###############################################################################
-# 1. Percona repository (clean → add branch 7/6)
+# 1. Percona repositories
 ###############################################################################
+# Add Percona 5.0 repo for common packages (percona-telemetry-agent, etc.)
+- name: mongodb_repo_configure_common
+  ansible.builtin.yum_repository:
+    name: "mongo-50-percona"
+    description: "Percona Server for MongoDB 5.0 - Common Packages"
+    baseurl: "https://nexus.sberdevices.ru/repository/yum_percona_mongodb_proxy/psmdb-50/yum/release/$releasever/RPMS/$basearch"
+    enabled: true
+    gpgcheck: 0
+  when: not mongo_prepare_os_skip | bool
+
+# Add version-specific repo
 - name: mongodb_repo_configure
   ansible.builtin.yum_repository:
     name: "{{ percona_repo_name }}"
@@ -90,57 +101,14 @@
 ###############################################################################
 # 2. Install exact Percona build (allow downgrade)
 ###############################################################################
-- name: mongodb_check_version_8plus
-  ansible.builtin.set_fact:
-    mongo_version_8plus: "{{ mongo_branch | string | regex_search('^(\\d+)') | int >= 8 }}"
-
-# For MongoDB < 8.0: Standard install
-- name: mongodb_install_packages_standard
+- name: mongodb_install_packages
   ansible.builtin.dnf:
     name: "{{ percona_package_glob }}"
     state: present
     exclude: "*-debug*"
     allow_downgrade: true
   register: percona_install
-  when: 
-    - not mongo_prepare_os_skip | bool
-    - not (mongo_version_8plus | bool)
-
-# For MongoDB 8.0+: Download packages first
-- name: mongodb_create_temp_dir
-  ansible.builtin.file:
-    path: /tmp/mongodb_packages
-    state: directory
-    mode: "0755"
-  when: 
-    - not mongo_prepare_os_skip | bool
-    - mongo_version_8plus | bool
-
-- name: mongodb_download_packages_8plus
-  ansible.builtin.command:
-    cmd: dnf download --destdir=/tmp/mongodb_packages --exclude="*-debug*" {{ percona_package_glob }}
-  when: 
-    - not mongo_prepare_os_skip | bool
-    - mongo_version_8plus | bool
-  changed_when: false
-
-# For MongoDB 8.0+: Install downloaded RPMs without dependency check
-- name: mongodb_install_packages_8plus
-  ansible.builtin.command:
-    cmd: rpm -Uvh --force --nodeps /tmp/mongodb_packages/*.rpm
-  when: 
-    - not mongo_prepare_os_skip | bool
-    - mongo_version_8plus | bool
-  register: percona_install
-  changed_when: true
-
-- name: mongodb_cleanup_temp_packages
-  ansible.builtin.file:
-    path: /tmp/mongodb_packages
-    state: absent
-  when: 
-    - not mongo_prepare_os_skip | bool
-    - mongo_version_8plus | bool
+  when: not mongo_prepare_os_skip | bool
 
 
 ###############################################################################

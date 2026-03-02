@@ -3,7 +3,28 @@
 # ==================================================================
 
 ###############################################################################
-# 0. Get current MongoDB version
+# 0. Configure repositories
+###############################################################################
+# Add Percona 5.0 repo for common packages (percona-telemetry-agent, etc.)
+- name: mongodb_upgrade_repo_configure_common
+  ansible.builtin.yum_repository:
+    name: "mongo-50-percona"
+    description: "Percona Server for MongoDB 5.0 - Common Packages"
+    baseurl: "https://nexus.sberdevices.ru/repository/yum_percona_mongodb_proxy/psmdb-50/yum/release/$releasever/RPMS/$basearch"
+    enabled: true
+    gpgcheck: 0
+
+# Add version-specific repo for target version
+- name: mongodb_upgrade_repo_configure
+  ansible.builtin.yum_repository:
+    name: "{{ percona_repo_name }}"
+    description: "Percona Server for MongoDB {{ mongo_branch }}"
+    baseurl: "{{ percona_baseurl }}"
+    enabled: true
+    gpgcheck: "{{ percona_repo_gpgcheck }}"
+
+###############################################################################
+# 1. Get current MongoDB version
 ###############################################################################
 - name: mongodb_upgrade_get_current_version
   ansible.builtin.shell: |
@@ -29,7 +50,7 @@
       ================================
 
 ###############################################################################
-# 1. Validate MongoDB is installed
+# 2. Validate MongoDB is installed
 ###############################################################################
 - name: mongodb_upgrade_validate_installed
   ansible.builtin.assert:
@@ -40,7 +61,7 @@
       Use mongo_desired_action: install instead.
 
 ###############################################################################
-# 2. Validate target version is newer
+# 3. Validate target version is newer
 ###############################################################################
 - name: mongodb_upgrade_validate_newer
   ansible.builtin.assert:
@@ -51,7 +72,7 @@
       Downgrades are not supported via this action.
 
 ###############################################################################
-# 3. Validate no version skip (e.g., 6.0 -> 8.0 forbidden)
+# 4. Validate no version skip (e.g., 6.0 -> 8.0 forbidden)
 ###############################################################################
 - name: mongodb_upgrade_calculate_version_diff
   ansible.builtin.set_fact:
@@ -86,7 +107,7 @@
       ================================================
 
 ###############################################################################
-# 4. Perform rolling upgrade (one node at a time)
+# 5. Perform rolling upgrade (one node at a time)
 ###############################################################################
 - name: mongodb_upgrade_info
   ansible.builtin.debug:
@@ -107,47 +128,13 @@
     name: mongod
     state: stopped
 
-- name: mongodb_upgrade_check_version_8plus
-  ansible.builtin.set_fact:
-    mongo_version_8plus: "{{ mongo_branch | string | regex_search('^(\\d+)') | int >= 8 }}"
-
-# For MongoDB < 8.0: Standard upgrade
-- name: mongodb_upgrade_packages_standard
+- name: mongodb_upgrade_packages
   ansible.builtin.dnf:
     name: "{{ percona_package_glob }}"
     state: present
     exclude: "*-debug*"
     allow_downgrade: false
-  when: not (mongo_version_8plus | bool)
   register: upgrade_result
-
-# For MongoDB 8.0+: Download packages first
-- name: mongodb_upgrade_create_temp_dir
-  ansible.builtin.file:
-    path: /tmp/mongodb_upgrade_packages
-    state: directory
-    mode: "0755"
-  when: mongo_version_8plus | bool
-
-- name: mongodb_upgrade_download_packages_8plus
-  ansible.builtin.command:
-    cmd: dnf download --destdir=/tmp/mongodb_upgrade_packages --exclude="*-debug*" {{ percona_package_glob }}
-  when: mongo_version_8plus | bool
-  changed_when: false
-
-# For MongoDB 8.0+: Upgrade using RPMs without dependency check
-- name: mongodb_upgrade_packages_8plus
-  ansible.builtin.command:
-    cmd: rpm -Uvh --force --nodeps /tmp/mongodb_upgrade_packages/*.rpm
-  when: mongo_version_8plus | bool
-  register: upgrade_result
-  changed_when: true
-
-- name: mongodb_upgrade_cleanup_temp_packages
-  ansible.builtin.file:
-    path: /tmp/mongodb_upgrade_packages
-    state: absent
-  when: mongo_version_8plus | bool
 
 - name: mongodb_upgrade_start_service
   ansible.builtin.service:
@@ -162,7 +149,7 @@
     timeout: 120
 
 ###############################################################################
-# 5. Pause between nodes to allow ReplicaSet to stabilize
+# 6. Pause between nodes to allow ReplicaSet to stabilize
 ###############################################################################
 - name: mongodb_upgrade_pause_between_nodes
   ansible.builtin.pause:
@@ -170,7 +157,7 @@
     seconds: 20
 
 ###############################################################################
-# 6. Verify upgrade success
+# 7. Verify upgrade success
 ###############################################################################
 - name: mongodb_upgrade_verify_version
   ansible.builtin.shell: |
@@ -190,7 +177,7 @@
       Upgrade verification failed. Current version: {{ new_version_check.stdout }}
 
 ###############################################################################
-# 7. Display post-upgrade instructions
+# 8. Display post-upgrade instructions
 ###############################################################################
 - name: mongodb_upgrade_post_instructions
   ansible.builtin.debug:
