@@ -100,78 +100,53 @@
       - admin
       - --eval
       - 'db.getRoles({rolesInfo:"pbmAnyAction"}).length'
-  register: pbm_role_count
+  register: pbm_role_count_raw
   changed_when: false
   failed_when: false
   run_once: true
   delegate_to: "{{ rs_primary_host }}"
   no_log: true
+
+# mongosh may print warnings/noise - extract last numeric line
+- name: pbm_parse_role_count
+  ansible.builtin.set_fact:
+    pbm_role_exists: >-
+      {{
+        pbm_role_count_raw.stdout_lines
+        | select('match', '^[0-9]+$')
+        | list | last | default('0') | int > 0
+      }}
+  run_once: true
+  delegate_to: localhost
 
 ###############################################################################
 # 6. Create pbmAnyAction role in MongoDB
 ###############################################################################
 - name: pbm_create_role
-  ansible.builtin.command:
-    argv:
-      - mongosh
-      - admin
-      - --quiet
-      - --host
-      - "{{ rs_primary_host }}"
-      - --port
-      - "{{ mongo_port }}"
-      - -u
-      - "{{ mongo_admin_user | default('admin') }}"
-      - -p
-      - "{{ mongo_admin_pwd }}"
-      - --authenticationDatabase
-      - admin
-      - --eval
-      - |
-        db.getSiblingDB("admin").createRole({
-          "role": "pbmAnyAction",
-          "privileges": [
-            { "resource": { "anyResource": true },
-              "actions": [ "anyAction" ]
-            }
-          ],
-          "roles": []
-        });
-  when: pbm_role_count.stdout | int == 0
+  community.mongodb.mongodb_role:
+    login_host: "{{ rs_primary_host }}"
+    login_port: "{{ mongo_port }}"
+    login_user: "{{ mongo_admin_user | default('admin') }}"
+    login_password: "{{ mongo_admin_pwd }}"
+    login_database: admin
+    connection_options:
+      - directConnection=true
+    database: admin
+    name: pbmAnyAction
+    privileges:
+      - resource:
+          anyResource: true
+        actions:
+          - anyAction
+    roles: []
+    state: present
+  when: not pbm_role_exists
   run_once: true
   delegate_to: "{{ rs_primary_host }}"
   no_log: true
 
 ###############################################################################
-# 7. Check if PBM user exists
-###############################################################################
-- name: pbm_check_user_exists
-  ansible.builtin.command:
-    argv:
-      - mongosh
-      - admin
-      - --quiet
-      - --host
-      - "{{ rs_primary_host }}"
-      - --port
-      - "{{ mongo_port }}"
-      - -u
-      - "{{ mongo_admin_user | default('admin') }}"
-      - -p
-      - "{{ mongo_admin_pwd }}"
-      - --authenticationDatabase
-      - admin
-      - --eval
-      - 'db.system.users.countDocuments({user:"{{ pbm_user }}"})' 
-  register: pbm_user_count
-  changed_when: false
-  failed_when: false
-  run_once: true
-  delegate_to: "{{ rs_primary_host }}"
-  no_log: true
-
-###############################################################################
-# 8. Create PBM user in MongoDB
+# 7. Create PBM user in MongoDB (idempotent via community.mongodb.mongodb_user)
 ###############################################################################
 - name: pbm_create_user
   community.mongodb.mongodb_user:
@@ -195,8 +170,8 @@
         db: admin
     connection_options:
       - directConnection=true
+    update_password: on_create
     state: present
-  when: pbm_user_count.stdout | int == 0
   run_once: true
   delegate_to: "{{ rs_primary_host }}"
   no_log: true
@@ -295,5 +270,4 @@
       pass : {{ pbm_user_password }}
       uri  : mongodb://{{ pbm_user }}:{{ pbm_user_password }}@{{ ansible_fqdn }}:{{ mongo_port }}/admin
       date : {{ ansible_date_time.iso8601 }}
-  when: pbm_user_count.stdout | int == 0
   no_log: true
