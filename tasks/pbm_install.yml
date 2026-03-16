@@ -30,23 +30,46 @@
     allow_downgrade: true
 
 ###############################################################################
-# 2. Choose PRIMARY host for user creation
+# 2. Detect actual PRIMARY by querying ReplicaSet status
 ###############################################################################
-- name: pbm_choose_primary
+- name: pbm_detect_primary
+  ansible.builtin.command:
+    argv:
+      - mongosh
+      - --quiet
+      - --host
+      - "{{ ansible_play_batch | first }}"
+      - --port
+      - "{{ mongo_port }}"
+      - -u
+      - "{{ mongo_admin_user | default('admin') }}"
+      - -p
+      - "{{ mongo_admin_pwd }}"
+      - --authenticationDatabase
+      - admin
+      - --eval
+      - 'rs.status().members.find(m => m.stateStr === "PRIMARY").name.split(":")[0]'
+  register: pbm_primary_raw
+  changed_when: false
+  run_once: true
+  delegate_to: "{{ ansible_play_batch | first }}"
+  no_log: true
+
+- name: pbm_set_primary_host
   ansible.builtin.set_fact:
     rs_primary_host: >-
       {{
-        (mongo_rs_members
-         | selectattr('role', 'defined')
-         | selectattr('role', 'equalto', 'primary')
-         | map(attribute='host') | first)
-          if (mongo_rs_members is defined
-              and mongo_rs_members | length > 0
-              and mongo_rs_members[0] is mapping)
-          else ansible_play_batch | first
+        pbm_primary_raw.stdout_lines
+        | select('match', '^[a-zA-Z0-9._-]+$')
+        | list | last
       }}
   run_once: true
   delegate_to: localhost
+
+- name: pbm_show_primary
+  ansible.builtin.debug:
+    msg: "PBM: detected PRIMARY host → {{ rs_primary_host }}"
+  run_once: true
 
 ###############################################################################
 # 3. Wait until PRIMARY is ready
@@ -60,14 +83,21 @@
       - "{{ rs_primary_host }}"
       - --port
       - "{{ mongo_port }}"
+      - -u
+      - "{{ mongo_admin_user | default('admin') }}"
+      - -p
+      - "{{ mongo_admin_pwd }}"
+      - --authenticationDatabase
+      - admin
       - --eval
-      - 'var h=db.hello(); print(h.isWritablePrimary || h.secondary);'
+      - 'var h=db.hello(); print(h.isWritablePrimary);'
   register: hello_status
-  retries: 5
-  delay: 3
+  retries: 10
+  delay: 5
   until: hello_status.stdout.strip() == "true"
   run_once: true
   delegate_to: "{{ rs_primary_host }}"
+  no_log: true
 
 ###############################################################################
 # 4. Generate PBM user password (if not provided)
@@ -129,8 +159,6 @@
     login_user: "{{ mongo_admin_user | default('admin') }}"
     login_password: "{{ mongo_admin_pwd }}"
     login_database: admin
-    connection_options:
-      - directConnection=true
     database: admin
     name: pbmAnyAction
     privileges:
@@ -168,8 +196,6 @@
         db: admin
       - role: pbmAnyAction
         db: admin
-    connection_options:
-      - directConnection=true
     update_password: on_create
     state: present
   run_once: true
