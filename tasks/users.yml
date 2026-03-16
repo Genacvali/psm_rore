@@ -3,10 +3,16 @@
 # ==================================================================
 
 # ------------------------------------------------------------------
-# Skip everything if requested
+# Skip everything if requested or if admin already created earlier
 # ------------------------------------------------------------------
+- name: mongodb_users_check_admin_creds_flag
+  ansible.builtin.stat:
+    path: /root/mongo_admin_credentials.txt
+  register: mongo_admin_creds
+  changed_when: false
+
 - meta: end_play
-  when: mongo_users_skip | bool
+  when: mongo_users_skip | bool or (mongo_admin_creds.stat.exists | default(false))
 
 ###############################################################################
 # 0. Choose PRIMARY host (explicit role -or- first host in batch)
@@ -66,7 +72,7 @@
 - name: mongodb_users_check_exists
   ansible.builtin.command:
     argv:
-      - mongo
+      - mongosh
       - admin
       - --quiet
       - --host
@@ -74,7 +80,7 @@
       - --port
       - "{{ mongo_port }}"
       - --eval
-      - 'db.system.users.count({user:"admin"})'
+      - 'db.getSiblingDB("admin").getUser("admin") ? 1 : 0'
   register: admin_count
   changed_when: false
   failed_when: false
@@ -95,8 +101,6 @@
     roles:
       - role: root
         db: admin
-    connection_options:
-      - directConnection=true
     state: present
   when: admin_count.stdout | int == 0
   run_once: true
