@@ -108,7 +108,7 @@
 ###############################################################################
 - name: mongodb_users_persist_pwd
   ansible.builtin.copy:
-    dest: /root/mongo_admin_credentials.txt
+    dest: "{{ mongo_credentials_file }}"
     owner: root
     group: root
     mode: "0600"

@@ -54,6 +54,9 @@ mongo_replset: "rsName"
 # keyFile contents will be generated once per cluster if empty
 mongo_keyfile_content: ""
 
+# File on PRIMARY: admin + application user credentials (append block for apps)
+mongo_credentials_file: "/root/mongo_admin_credentials.txt"
+
 # ------------------------------------------------
 # 3b. Application users & databases (after auth is enabled)
 # ------------------------------------------------

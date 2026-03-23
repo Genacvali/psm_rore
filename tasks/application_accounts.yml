@@ -69,6 +69,24 @@
         label: "{{ item.user }}"
 
     ###############################################################################
+    # 3b. Resolve passwords (inventory or generate once) for file + MongoDB
+    ###############################################################################
+    - name: application_accounts_merge_passwords
+      ansible.builtin.set_fact:
+        mongo_application_accounts_resolved: "{{ mongo_application_accounts_resolved | default([]) + [_entry] }}"
+      vars:
+        _pwd: >-
+          {{
+            lookup('password', '/dev/null chars=ascii_letters,digits length=24')
+            if (item.password | default('') | string | trim | length == 0)
+            else item.password
+          }}
+        _entry: "{{ item | combine({'password': _pwd}) }}"
+      loop: "{{ mongo_application_accounts }}"
+      run_once: true
+      delegate_to: localhost
+
+    ###############################################################################
     # 4. Create users (database is created implicitly when needed)
     ###############################################################################
     - name: application_accounts_create_user
@@ -80,20 +98,44 @@
         login_database: admin
         database: "{{ item.database }}"
         name: "{{ item.user }}"
-        password: "{{ item.password | default(lookup('password', '/dev/null chars=ascii_letters,digits length=24'), true) }}"
+        password: "{{ item.password }}"
         roles:
           - role: "{{ item.role }}"
             db: "{{ item.database }}"
         update_password: "{{ item.update_password | default('on_create') }}"
         state: present
-      loop: "{{ mongo_application_accounts }}"
+      loop: "{{ mongo_application_accounts_resolved }}"
       loop_control:
         label: "{{ item.user }}@{{ item.database }}"
       run_once: true
       delegate_to: "{{ rs_primary_host }}"
       no_log: true
 
+    ###############################################################################
+    # 5. Append application credentials to same file as admin (PRIMARY)
+    ###############################################################################
+    - name: application_accounts_persist_in_credentials_file
+      ansible.builtin.blockinfile:
+        path: "{{ mongo_credentials_file }}"
+        marker: "# {mark} ANSIBLE MANAGED - MONGO APPLICATION USERS"
+        block: |
+          date : {{ ansible_date_time.iso8601 }}
+          {% for acc in mongo_application_accounts_resolved %}
+          app_user : {{ acc.user }}
+          app_pass : {{ acc.password }}
+          app_db   : {{ acc.database }}
+          app_role : {{ acc.role }}
+          ---
+          {% endfor %}
+        create: true
+        mode: "0600"
+        owner: root
+        group: root
+      run_once: true
+      delegate_to: "{{ rs_primary_host }}"
+      no_log: true
+
     - name: application_accounts_summary
       ansible.builtin.debug:
-        msg: "Application MongoDB users ensured: {{ mongo_application_accounts | map(attribute='user') | list | join(', ') }}"
+        msg: "Application MongoDB users ensured: {{ mongo_application_accounts | map(attribute='user') | list | join(', ') }}; creds appended to {{ mongo_credentials_file }} on PRIMARY"
       run_once: true

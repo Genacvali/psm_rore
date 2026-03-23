@@ -86,6 +86,8 @@ mongo_application_accounts:
     role: "dbOwner"
 ```
 
+Учётные данные прикладных пользователей дописываются в тот же файл на **PRIMARY**, что и admin: `mongo_credentials_file` (по умолчанию `/root/mongo_admin_credentials.txt`), блоком с маркером `ANSIBLE MANAGED - MONGO APPLICATION USERS`.
+
 Для **только** создания пользователей на уже работающем кластере:
 
 ```yaml
