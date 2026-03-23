@@ -3,16 +3,11 @@
 # ==================================================================
 
 # ------------------------------------------------------------------
-# Skip everything if requested or if admin already created earlier
+# Skip entire users block only if explicitly requested
+# (do NOT use end_play when admin creds file exists — that would stop the whole play)
 # ------------------------------------------------------------------
-- name: mongodb_users_check_admin_creds_flag
-  ansible.builtin.stat:
-    path: /root/mongo_admin_credentials.txt
-  register: mongo_admin_creds
-  changed_when: false
-
 - meta: end_play
-  when: mongo_users_skip | bool or (mongo_admin_creds.stat.exists | default(false))
+  when: mongo_users_skip | bool
 
 ###############################################################################
 # 0. Choose PRIMARY host (explicit role -or- first host in batch)

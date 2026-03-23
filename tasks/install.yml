@@ -81,6 +81,13 @@
   tags: [mongodb_install, mongodb_keyfile]
 
 ###############################################################################
+# 5b. Application databases & users (inventory: mongo_application_accounts)
+###############################################################################
+- name: mongodb_application_accounts
+  ansible.builtin.import_tasks: application_accounts.yml
+  tags: [mongodb_install, mongodb_app_users]
+
+###############################################################################
 # 6. Install Percona Backup for MongoDB (by default)
 ###############################################################################
 - name: mongodb_pbm_status_check

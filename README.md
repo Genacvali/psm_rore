@@ -69,6 +69,33 @@ mongo_pkg_version: "8.0.16"   # Установит точно 8.0.16
 - `upgrade` – Обновление MongoDB до новой версии с проверками совместимости
 - `wipe` – Полное удаление MongoDB и связанных данных
 - `pbm_install` – Только установка и настройка Percona Backup for MongoDB (для добавления на существующий кластер)
+- `create_app_users` – Только создание прикладных пользователей и БД по `mongo_application_accounts` (нужен `mongo_admin_pwd`)
+
+### Прикладные пользователи и БД (`mongo_application_accounts`)
+
+В `group_vars` / inventory задайте список учёток. После включения auth (шаг keyfile) при `install` они создаются автоматически; отдельно — через `mongo_desired_action: create_app_users`.
+
+```yaml
+mongo_application_accounts:
+  - user: "app_reader"
+    database: "myapp"
+    role: "read"              # read | readWrite | dbOwner
+    password: "{{ vault_mongo_myapp_reader }}"   # опционально; иначе пароль сгенерируется
+  - user: "app_owner"
+    database: "myapp"
+    role: "dbOwner"
+```
+
+Для **только** создания пользователей на уже работающем кластере:
+
+```yaml
+mongo_desired_action: create_app_users
+mongo_admin_pwd: "<пароль admin>"   # обязательно, если не тот же play что install
+mongo_application_accounts:
+  - user: "new_user"
+    database: "newdb"
+    role: "read"
+```
 
 ---
 
@@ -361,6 +388,7 @@ mongo_desired_action: wipe
 - `mongodb_upgrade` - обновление MongoDB до новой версии
 - `mongodb_wipe` - полное удаление MongoDB
 - `mongodb_pbm_install` - только установка PBM (отдельное действие)
+- `mongodb_create_app_users` - только прикладные пользователи (`create_app_users`)
 
 ### Части установки (внутри `install`):
 - `mongodb_prepare_os` - подготовка ОС (THP, репозитории, пакеты)
@@ -369,12 +397,16 @@ mongo_desired_action: wipe
 - `mongodb_users` - создание пользователя admin
 - `mongodb_keyfile` - настройка аутентификации
 - `mongodb_pbm` - установка Percona Backup for MongoDB
+- `mongodb_app_users` - прикладные пользователи и БД (`mongo_application_accounts`)
 
 ### Примеры использования тегов:
 
 ```bash
 # Установить только PBM (MongoDB уже должна быть установлена)
 ansible-playbook playbook.yml --tags mongodb_pbm
+
+# Только прикладные пользователи (внутри install или отдельный play с нужным action)
+ansible-playbook playbook.yml --tags mongodb_app_users
 
 # Выполнить полную установку
 ansible-playbook playbook.yml --tags mongodb_install

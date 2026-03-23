@@ -8,9 +8,9 @@
 - name: mongodb_action_validate
   ansible.builtin.assert:
     that:
-      - mongo_desired_action in ['install', 'update_conf', 'upgrade', 'wipe', 'pbm_install', 'none']
+      - mongo_desired_action in ['install', 'update_conf', 'upgrade', 'wipe', 'pbm_install', 'create_app_users', 'none']
     fail_msg: >
-      "mongo_desired_action must be one of: install | update_conf | upgrade | wipe | pbm_install | none
+      "mongo_desired_action must be one of: install | update_conf | upgrade | wipe | pbm_install | create_app_users | none
        (got {{ mongo_desired_action }})"
 
 # ------------------------------------------------------------------
@@ -54,7 +54,15 @@
   tags: [mongodb_pbm_install]
 
 # ------------------------------------------------------------------
-# 6. No-op (mongo_desired_action = none) ─ play exits silently
+# 6. Create application DB users only (no full install)
+# ------------------------------------------------------------------
+- name: mongodb_create_app_users
+  ansible.builtin.import_tasks: application_accounts.yml
+  when: mongo_desired_action == "create_app_users"
+  tags: [mongodb_create_app_users, mongodb_app_users]
+
+# ------------------------------------------------------------------
+# 7. No-op (mongo_desired_action = none) ─ play exits silently
 # ------------------------------------------------------------------
 - name: mongodb_noop
   ansible.builtin.debug:

@@ -1,0 +1,99 @@
+# ==================================================================
+# tasks/application_accounts.yml – application DB users & databases
+# ==================================================================
+# Inventory: mongo_application_accounts (see defaults/main.yml)
+# Requires: admin auth (mongo_admin_pwd or from localhost fact after install)
+
+- name: Application MongoDB accounts
+  when: mongo_application_accounts | default([]) | length > 0
+  block:
+    ###############################################################################
+    # 1. Choose PRIMARY (same logic as users.yml)
+    ###############################################################################
+    - name: application_accounts_choose_primary
+      ansible.builtin.set_fact:
+        rs_primary_host: >-
+          {{
+            (mongo_rs_members
+             | selectattr('role', 'defined')
+             | selectattr('role', 'equalto', 'primary')
+             | map(attribute='host') | first)
+              if (mongo_rs_members is defined
+                  and mongo_rs_members | length > 0
+                  and mongo_rs_members[0] is mapping)
+              else ansible_play_batch | first
+          }}
+      run_once: true
+      delegate_to: localhost
+
+    ###############################################################################
+    # 2. Resolve admin password for API login
+    ###############################################################################
+    - name: application_accounts_resolve_admin_password
+      ansible.builtin.set_fact:
+        _mongo_admin_pwd: >-
+          {{
+            (mongo_admin_pwd | string)
+            if (mongo_admin_pwd is defined and mongo_admin_pwd | string | trim | length > 0)
+            else (
+              hostvars['localhost']['mongo_admin_pwd']
+              if ('localhost' in hostvars and hostvars['localhost']['mongo_admin_pwd'] is defined
+                 and hostvars['localhost']['mongo_admin_pwd'] | string | length > 0)
+              else ''
+            )
+          }}
+      run_once: true
+      delegate_to: localhost
+
+    - name: application_accounts_assert_admin_password
+      ansible.builtin.assert:
+        that:
+          - _mongo_admin_pwd | string | length > 0
+        fail_msg: >
+          mongo_admin_pwd is required to create application users.
+          Set it in inventory/vault for action create_app_users,
+          or run after install in the same playbook (password from users step).
+
+    ###############################################################################
+    # 3. Validate role names
+    ###############################################################################
+    - name: application_accounts_validate_roles
+      ansible.builtin.assert:
+        that:
+          - item.role | string in mongo_application_allowed_roles
+        fail_msg: >
+          Invalid role '{{ item.role }}' for user '{{ item.user }}'.
+          Allowed: {{ mongo_application_allowed_roles | join(', ') }}
+      loop: "{{ mongo_application_accounts }}"
+      loop_control:
+        label: "{{ item.user }}"
+
+    ###############################################################################
+    # 4. Create users (database is created implicitly when needed)
+    ###############################################################################
+    - name: application_accounts_create_user
+      community.mongodb.mongodb_user:
+        login_host: "{{ rs_primary_host }}"
+        login_port: "{{ mongo_port }}"
+        login_user: "{{ mongo_admin_user | default('admin') }}"
+        login_password: "{{ _mongo_admin_pwd }}"
+        login_database: admin
+        database: "{{ item.database }}"
+        name: "{{ item.user }}"
+        password: "{{ item.password | default(lookup('password', '/dev/null chars=ascii_letters,digits length=24'), true) }}"
+        roles:
+          - role: "{{ item.role }}"
+            db: "{{ item.database }}"
+        update_password: "{{ item.update_password | default('on_create') }}"
+        state: present
+      loop: "{{ mongo_application_accounts }}"
+      loop_control:
+        label: "{{ item.user }}@{{ item.database }}"
+      run_once: true
+      delegate_to: "{{ rs_primary_host }}"
+      no_log: true
+
+    - name: application_accounts_summary
+      ansible.builtin.debug:
+        msg: "Application MongoDB users ensured: {{ mongo_application_accounts | map(attribute='user') | list | join(', ') }}"
+      run_once: true

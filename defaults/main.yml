@@ -5,7 +5,7 @@
 # ------------------------------------------------
 # 0. Role switch            (do nothing by default)
 # ------------------------------------------------
-# valid values:  install | update_conf | upgrade | wipe | pbm_install | none
+# valid values:  install | update_conf | upgrade | wipe | pbm_install | create_app_users | none
 mongo_desired_action: "none"
 
 # ------------------------------------------------
@@ -53,6 +53,28 @@ mongo_replset: "rsName"
 
 # keyFile contents will be generated once per cluster if empty
 mongo_keyfile_content: ""
+
+# ------------------------------------------------
+# 3b. Application users & databases (after auth is enabled)
+# ------------------------------------------------
+# Used by install (if non-empty) and by mongo_desired_action: create_app_users
+# Each entry: user, database, role (read | readWrite | dbOwner), optional password
+#
+# mongo_application_accounts:
+#   - user: "app_reader"
+#     database: "myapp"
+#     role: "read"              # read | readWrite | dbOwner
+#     password: "from-vault"    # optional; auto-generated if omitted
+#   - user: "app_owner"
+#     database: "myapp"
+#     role: "dbOwner"
+mongo_application_accounts: []
+
+# Allowed built-in roles for mongo_application_accounts[].role
+mongo_application_allowed_roles:
+  - read
+  - readWrite
+  - dbOwner
 
 # ------------------------------------------------
 # 4. Skip toggles      (all false by default)
