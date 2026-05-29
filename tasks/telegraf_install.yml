@@ -12,8 +12,15 @@
     disable_gpg_check: true
 
 ###############################################################################
-# 2. Create MongoDB monitoring user (on PRIMARY only)
+# 2. Create MongoDB monitoring user (skipped if telegraf_mongo_password empty)
 ###############################################################################
+- name: telegraf_skip_user_notice
+  ansible.builtin.debug:
+    msg: >
+      telegraf_mongo_password is not set — skipping MongoDB user creation.
+      Add the password to /etc/telegraf/telegraf.conf manually after deployment.
+  when: telegraf_mongo_password | string | trim | length == 0
+
 - name: telegraf_choose_primary
   ansible.builtin.set_fact:
     rs_primary_host: >-
@@ -27,6 +34,7 @@
               and mongo_rs_members[0] is mapping)
           else ansible_play_batch | first
       }}
+  when: telegraf_mongo_password | string | trim | length > 0
   run_once: true
   delegate_to: localhost
 
@@ -47,6 +55,7 @@
         db: local
     update_password: on_create
     state: present
+  when: telegraf_mongo_password | string | trim | length > 0
   run_once: true
   delegate_to: "{{ rs_primary_host }}"
   no_log: true

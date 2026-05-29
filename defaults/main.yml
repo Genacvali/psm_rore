@@ -138,9 +138,9 @@ mongo_install_telegraf: false
 # Telegraf RPM package URL from Nexus
 telegraf_package_url: "https://nexus.sberdevices.ru/repository/yum_repos.influxdata.com_rhel_8_x86_64_stable_proxy/telegraf-1.38.0-1.x86_64.rpm"
 
-# MongoDB user for monitoring (created automatically)
+# MongoDB user for monitoring (created automatically when password is set)
 telegraf_mongo_user: "zabbix"
-# telegraf_mongo_password: ""  # REQUIRED: set in inventory or vault
+telegraf_mongo_password: ""   # leave empty to skip user creation; fill in manually later
 
 # Prometheus exporter port (firewall rule created automatically)
 telegraf_prometheus_port: 9216

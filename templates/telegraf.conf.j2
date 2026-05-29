@@ -1,5 +1,11 @@
 [[inputs.mongodb]]
+{% if telegraf_mongo_password | string | trim | length > 0 %}
   servers = ["mongodb://{{ telegraf_mongo_user }}:{{ telegraf_mongo_password }}@{{ ansible_fqdn }}:{{ mongo_port }}/?connect=direct"]
+{% else %}
+  # TODO: fill in the password manually:
+  # servers = ["mongodb://{{ telegraf_mongo_user }}:PASSWORD@{{ ansible_fqdn }}:{{ mongo_port }}/?connect=direct"]
+  servers = []
+{% endif %}
   gather_perdb_stats = true
   gather_col_stats = false
 
