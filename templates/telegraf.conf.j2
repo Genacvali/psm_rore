@@ -1,0 +1,46 @@
+[[inputs.mongodb]]
+  servers = ["mongodb://{{ telegraf_mongo_user }}:{{ telegraf_mongo_password }}@{{ ansible_fqdn }}:{{ mongo_port }}/?connect=direct"]
+  gather_perdb_stats = true
+  gather_col_stats = false
+
+[[inputs.cpu]]
+  percpu = true
+  totalcpu = true
+  collect_cpu_time = false
+
+[[inputs.net]]
+  interfaces = ["eth*", "enp0s[0-1]", "lo"]
+
+[[inputs.nstat]]
+  proc_net_netstat = "/proc/net/netstat"
+  proc_net_snmp = "/proc/net/snmp"
+  proc_net_snmp6 = "/proc/net/snmp6"
+  dump_zeros = true
+
+[[inputs.processes]]
+
+[[inputs.mem]]
+
+[[inputs.diskio]]
+
+[[inputs.disk]]
+  mount_points = {{ telegraf_disk_mount_points | tojson }}
+
+[[inputs.system]]
+
+[[outputs.prometheus_client]]
+  listen = ":{{ telegraf_prometheus_port }}"
+  collectors_exclude = ["gocollector","process"]
+  metric_version = 2
+
+[[inputs.procstat]]
+  pattern = "."
+  pid_tag = true
+  pid_finder = "native"
+  fieldpass = ["cpu_time_user", "cpu_usage", "memory_rss"]
+
+[[processors.topk]]
+  namepass = ["*procstat*"]
+  group_by = ["pid"]
+  fields = ["cpu_time_user", "cpu_usage", "memory_rss"]
+  k = 5

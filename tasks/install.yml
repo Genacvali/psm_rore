@@ -103,3 +103,11 @@
   ansible.builtin.import_tasks: pbm_install.yml
   when: mongo_install_pbm | default(true) | bool
   tags: [mongodb_install, mongodb_pbm]
+
+###############################################################################
+# 7. Install Telegraf monitoring (opt-in via mongo_install_telegraf: true)
+###############################################################################
+- name: mongodb_telegraf_install
+  ansible.builtin.import_tasks: telegraf_install.yml
+  when: mongo_install_telegraf | default(false) | bool
+  tags: [mongodb_install, mongodb_telegraf]

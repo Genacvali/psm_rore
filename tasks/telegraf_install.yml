@@ -1,0 +1,103 @@
+# ==================================================================
+# tasks/telegraf_install.yml – Telegraf installation & configuration
+# ==================================================================
+
+###############################################################################
+# 1. Install Telegraf from Nexus
+###############################################################################
+- name: telegraf_install_package
+  ansible.builtin.yum:
+    name: "{{ telegraf_package_url }}"
+    state: present
+    disable_gpg_check: true
+
+###############################################################################
+# 2. Create MongoDB monitoring user (on PRIMARY only)
+###############################################################################
+- name: telegraf_choose_primary
+  ansible.builtin.set_fact:
+    rs_primary_host: >-
+      {{
+        (mongo_rs_members
+         | selectattr('role', 'defined')
+         | selectattr('role', 'equalto', 'primary')
+         | map(attribute='host') | first)
+          if (mongo_rs_members is defined
+              and mongo_rs_members | length > 0
+              and mongo_rs_members[0] is mapping)
+          else ansible_play_batch | first
+      }}
+  run_once: true
+  delegate_to: localhost
+
+- name: telegraf_create_mongo_user
+  community.mongodb.mongodb_user:
+    login_host: "{{ rs_primary_host }}"
+    login_port: "{{ mongo_port }}"
+    login_user: "{{ mongo_admin_user | default('admin') }}"
+    login_password: "{{ mongo_admin_pwd }}"
+    login_database: admin
+    database: admin
+    name: "{{ telegraf_mongo_user }}"
+    password: "{{ telegraf_mongo_password }}"
+    roles:
+      - role: clusterMonitor
+        db: admin
+      - role: read
+        db: local
+    update_password: on_create
+    state: present
+  run_once: true
+  delegate_to: "{{ rs_primary_host }}"
+  no_log: true
+
+###############################################################################
+# 3. Render telegraf.conf from template
+###############################################################################
+- name: telegraf_render_config
+  ansible.builtin.template:
+    src: telegraf.conf.j2
+    dest: /etc/telegraf/telegraf.conf
+    owner: telegraf
+    group: telegraf
+    mode: "0600"
+  register: telegraf_config_result
+
+###############################################################################
+# 4. Open port 9216 in firewall
+###############################################################################
+- name: telegraf_firewall_open_port
+  ansible.posix.firewalld:
+    port: "{{ telegraf_prometheus_port }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  ignore_errors: true  # Continue if firewalld is not running
+
+###############################################################################
+# 5. Enable and start telegraf, restart if config changed
+###############################################################################
+- name: telegraf_service_enable
+  ansible.builtin.service:
+    name: telegraf
+    enabled: true
+    state: started
+
+- name: telegraf_service_restart_on_change
+  ansible.builtin.service:
+    name: telegraf
+    state: restarted
+  when: telegraf_config_result.changed
+
+###############################################################################
+# 6. Verify telegraf is running
+###############################################################################
+- name: telegraf_service_status
+  ansible.builtin.command: systemctl status telegraf
+  register: telegraf_status
+  changed_when: false
+  failed_when: false
+
+- name: telegraf_show_status
+  ansible.builtin.debug:
+    msg: "Telegraf status: {{ 'RUNNING' if 'active (running)' in telegraf_status.stdout else 'NOT RUNNING - check logs' }}"
