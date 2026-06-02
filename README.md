@@ -9,6 +9,7 @@
 - Инициализацию и расширение ReplicaSet
 - Создание администратора (root) MongoDB
 - **Установку и настройку Percona Backup for MongoDB (PBM)** для резервного копирования
+- **Установку и настройку Telegraf** для мониторинга MongoDB/нод и экспорта метрик в Prometheus-формате
 - Удаление MongoDB при необходимости
 
 ---
@@ -18,7 +19,7 @@
 ### Обязательные (обычно в `group_vars` или `inventory`):
 
 ```yaml
-mongo_desired_action: install  # или 'update_conf', 'upgrade', 'wipe'
+mongo_desired_action: install  # install | update_conf | upgrade | wipe | pbm_install | create_app_users | monitoring_install | none
 
 mongo_rs_members:
   - host: hostname1
@@ -58,7 +59,12 @@ mongo_pkg_version: "8.0.16"   # Установит точно 8.0.16
 | `mongo_admin_pwd`        | Пароль для пользователя `admin`                      | Генерируется                         |
 | `mongo_install_pbm`      | Установить PBM при действии `install`                | `true`                               |
 | `mongo_pbm_skip`         | Пропустить установку PBM при действии `pbm_install`  | `false`                              |
-| `pymongo_version`        | Версия PyMongo для модулей community.mongodb         | `4.13.2`                             |
+| `pymongo_version`        | Версия PyMongo для модулей community.mongodb         | `4.1.1`                              |
+| `mongo_install_telegraf` | Установить Telegraf при действии `install`           | `false`                              |
+| `telegraf_package_url`   | URL RPM-пакета Telegraf                              | Из внутреннего Nexus                 |
+| `telegraf_mongo_user`    | Пользователь MongoDB для мониторинга                 | `zabbix`                             |
+| `telegraf_mongo_password`| Пароль пользователя MongoDB для Telegraf             | Пусто (создание пользователя пропускается) |
+| `telegraf_prometheus_port` | Порт Prometheus-экспортера Telegraf                | `9216`                               |
 
 ---
 
@@ -70,6 +76,8 @@ mongo_pkg_version: "8.0.16"   # Установит точно 8.0.16
 - `wipe` – Полное удаление MongoDB и связанных данных
 - `pbm_install` – Только установка и настройка Percona Backup for MongoDB (для добавления на существующий кластер)
 - `create_app_users` – Только создание прикладных пользователей и БД по `mongo_application_accounts` (нужен `mongo_admin_pwd`)
+- `monitoring_install` – Только установка и настройка Telegraf-мониторинга
+- `none` – Явно пропустить выполнение роли (no-op)
 
 ### Прикладные пользователи и БД (`mongo_application_accounts`)
 
@@ -246,6 +254,43 @@ mongo_application_accounts:
 
 ---
 
+## 📈 Установка Telegraf для мониторинга
+
+### В составе полного `install`
+
+```yaml
+- name: Установка MongoDB + Telegraf
+  hosts: mongodb
+  become: true
+  roles:
+    - role: psmongodb
+      vars:
+        mongo_desired_action: install
+        mongo_install_telegraf: true
+        mongo_admin_pwd: "your_admin_password"   # нужен, если хотите автосоздать mongo-user для Telegraf
+        telegraf_mongo_user: "zabbix"
+        telegraf_mongo_password: "your_telegraf_password"
+```
+
+### Отдельное действие `monitoring_install`
+
+```yaml
+- name: Установка только Telegraf
+  hosts: mongodb
+  become: true
+  roles:
+    - role: psmongodb
+      vars:
+        mongo_desired_action: monitoring_install
+        mongo_admin_pwd: "your_admin_password"
+        telegraf_mongo_password: "your_telegraf_password"
+        telegraf_prometheus_port: 9216
+```
+
+Если `telegraf_mongo_password` не задан, роль установит и запустит Telegraf, но создание mongo-пользователя будет пропущено.
+
+---
+
 ## ⬆️ Обновление MongoDB (Upgrade)
 
 Роль поддерживает безопасное обновление MongoDB до новой версии с автоматическими проверками.
@@ -391,6 +436,7 @@ mongo_desired_action: wipe
 - `mongodb_wipe` - полное удаление MongoDB
 - `mongodb_pbm_install` - только установка PBM (отдельное действие)
 - `mongodb_create_app_users` - только прикладные пользователи (`create_app_users`)
+- `mongodb_monitoring_install` - только установка Telegraf (`monitoring_install`)
 
 ### Части установки (внутри `install`):
 - `mongodb_prepare_os` - подготовка ОС (THP, репозитории, пакеты)
@@ -400,6 +446,7 @@ mongo_desired_action: wipe
 - `mongodb_keyfile` - настройка аутентификации
 - `mongodb_pbm` - установка Percona Backup for MongoDB
 - `mongodb_app_users` - прикладные пользователи и БД (`mongo_application_accounts`)
+- `mongodb_telegraf` - установка и настройка Telegraf
 
 ### Примеры использования тегов:
 
@@ -422,7 +469,7 @@ ansible-playbook playbook.yml --tags mongodb_prepare_os
 ## 📝 Замечания
 
 - Репликация и создание пользователя происходит **только на `primary`**.
-- Версия MongoDB должна быть указана в `mongo_pkg_version` как `6.0`, `7.0`, `8.0` и т.д. — без patch версии.
+- Версия MongoDB в `mongo_pkg_version` поддерживает оба формата: `major.minor` (например `8.0`) и `major.minor.patch` (например `8.0.16`).
 - Репозиторий формируется автоматически из шаблона и использует **внутренний Nexus**.
 
 ---
@@ -434,6 +481,7 @@ roles/psmongodb/
 ├── defaults/
 │   └── main.yml
 ├── tasks/
+│   ├── application_accounts.yml
 │   ├── configure.yml
 │   ├── derive_replname.yml
 │   ├── install.yml
@@ -442,10 +490,13 @@ roles/psmongodb/
 │   ├── pbm_install.yml
 │   ├── prepare_os.yml
 │   ├── replicaset.yml
+│   ├── telegraf_install.yml
 │   ├── update_conf.yml
+│   ├── upgrade.yml
 │   ├── users.yml
 │   └── wipe.yml
 ├── templates/
 │   ├── mongod.conf.j2
-│   └── pbm_config_s3.yaml.j2
+│   ├── pbm_config_s3.yaml.j2
+│   └── telegraf.conf.j2
 ```
